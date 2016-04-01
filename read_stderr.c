@@ -37,13 +37,41 @@ void insert_household( House *, Household **, int );
 void insert_plug( Household *, Plug **, int );
 void print_houses( House * );
 void print_house( House * );
+char *purgeInfo( char info[] );
+int split (char *str, char delimiter, char ***tokens);
+char *str_replace(char *orig, char *rep, char *with) ;
+int startsWith(char *pre, char *str);
 
 int main(int argc, char *argv[]){
-	int i;
+	int i = 0, num_token_stdout = 0, num_token_stderr = 0;
 	House *start_house = NULL;
 	House *last_appended_house = NULL;
 	Household *last_appended_household = NULL;
 	Plug *last_appended_plug = NULL;
+	char **tokens_stdout = NULL;
+	char **tokens_stderr = NULL;
+	char *string_stdout = "11,1459365287,0,1,4,68";
+	char *string_stderr = "house 0 {household 0 {plug 0, plug 1, plug 2, plug 3, plug 4, plug 5, plug 6, }, household 1 {plug 0, plug 1, plug 2, plug 3, plug 4, plug 5, plug 6, plug 7, plug 8, }, household 2 {plug 0, plug 1, plug 2, plug 3, plug 4, }, household 3 {plug 0, plug 1, plug 2, plug 3, plug 4, plug 5, plug 6, plug 7, plug 8, }, household 4 {plug 0, plug 1, plug 2, plug 3, plug 4, plug 5, plug 6, plug 7, }, household 5 {plug 0, plug 1, plug 2, plug 3, plug 4, plug 5, plug 6, plug 7, plug 8, }, }";
+	char *purged_string;
+
+	//Clear the string received from stderr
+	purged_string = purgeInfo( string_stderr );
+	num_token_stderr = split( purged_string, ',', &tokens_stderr );
+	for (i = 0; i < num_token_stderr; i++){
+		if( startsWith( "household ", tokens_stderr[i] ) ){
+			printf("token #%d: %s\n", i, tokens_stderr[i]);
+		} else {
+			printf("Not an household\n");
+		}
+
+	}
+
+	//Extract data as received from stdout
+	num_token_stdout = split(string_stdout, ',', &tokens_stdout);
+	for (i = 0; i < num_token_stdout; i++){
+		printf("token #%d: %s\n", i, tokens_stdout[i]);
+	}
+
 
 	for(i = 0; i < 5; i++){
 		insert_house( &start_house, &last_appended_house, i);
@@ -53,7 +81,7 @@ int main(int argc, char *argv[]){
 	return 0;
 }
 
-//TODO Recognize Strings
+//TODO Remember to free memory allocated by the array of tokens.
 
 void insert_house(House **start_house, House **last_appended, int id){
 	//Declaration and allocation
@@ -169,4 +197,158 @@ void print_house(House *my_house){
 	printf("House id: %d\n", my_house->id);
 }
 
+/*
+ * Modify the original string in order to manage that as a string coming from stdout
+ *
+ * NB: Remember to free the return value!
+ */
+char *purgeInfo( char info[] ){
+	char *result = info;
+	char *old;
+	//Each time I free the memory dynamically allocated when I don't use it anymore
+	result = str_replace( result, ", }, }", "");
+	old = result;
+	result = str_replace( result, "}, ", "");
+	free( old );
+	old = result;
+	result = str_replace( result, "}", "");
+	free( old );
+	old = result;
+	result = str_replace( result, ", ", ",");
+	free( old );
+	old = result;
+	result = str_replace( result, " {", ",");
+	free( old );
+	return result;
+}
+/*
+ * str 			-> 	Original string to split (not modified)
+ * delimiter	->	The delimiters
+ * tokens		->	All the parts of the string splitted in an array.
+ *
+ * returns 		->	The number of tokens
+ */
+int split (char *str, char delimiter, char ***tokens){
+    int count = 1;
+    int token_len = 1;
+    int i = 0;
+    char *p;
+    char *t;
+
+    p = str;
+    while (*p != '\0')
+    {
+        if (*p == delimiter)
+            count++;
+        p++;
+    }
+
+    *tokens = (char**) malloc(sizeof(char*) * count);
+    if (*tokens == NULL)
+        exit(1);
+
+    p = str;
+    while (*p != '\0')
+    {
+        if (*p == delimiter)
+        {
+            (*tokens)[i] = (char*) malloc( sizeof(char) * token_len );
+            if ((*tokens)[i] == NULL)
+                exit(1);
+
+            token_len = 0;
+            i++;
+        }
+        p++;
+        token_len++;
+    }
+    (*tokens)[i] = (char*) malloc( sizeof(char) * token_len );
+    if ((*tokens)[i] == NULL)
+        exit(1);
+
+    i = 0;
+    p = str;
+    t = ((*tokens)[i]);
+    while (*p != '\0')
+    {
+        if (*p != delimiter && *p != '\0')
+        {
+            *t = *p;
+            t++;
+        }
+        else
+        {
+            *t = '\0';
+            i++;
+            t = ((*tokens)[i]);
+        }
+        p++;
+    }
+
+    return count;
+}
+
+/*
+ * orig		->	Original string
+ * rep		->	Token to find
+ * with		->	Token to substitute
+ *
+ * returns	->	The replaced string NB. Must call the function free to free memory.
+ */
+char *str_replace(char *orig, char *rep, char *with) {
+    char *result; // the return string
+    char *ins;    // the next insert point
+    char *tmp;    // varies
+    int len_rep;  // length of rep
+    int len_with; // length of with
+    int len_front; // distance between rep and end of last rep
+    int count;    // number of replacements
+
+    if (!orig)
+        return NULL;
+    if (!rep)
+        rep = "";
+    len_rep = strlen(rep);
+    if (!with)
+        with = "";
+    len_with = strlen(with);
+
+    ins = orig;
+    for (count = 0; (tmp = strstr(ins, rep)); ++count) {
+        ins = tmp + len_rep;
+    }
+
+    // first time through the loop, all the variable are set correctly
+    // from here on,
+    //    tmp points to the end of the result string
+    //    ins points to the next occurrence of rep in orig
+    //    orig points to the remainder of orig after "end of rep"
+    tmp = result = malloc(strlen(orig) + (len_with - len_rep) * count + 1);
+
+    if (!result)
+        return NULL;
+
+    while (count--) {
+        ins = strstr(orig, rep);
+        len_front = ins - orig;
+        tmp = strncpy(tmp, orig, len_front) + len_front;
+        tmp = strcpy(tmp, with) + len_with;
+        orig += len_front + len_rep; // move to next "end of rep"
+    }
+    strcpy(tmp, orig);
+    return result;
+}
+
+/*
+ * pre	->	Characters to find at the start of str
+ * str	->	The full string
+ *
+ * returns	->	0 if NOT EQUAL
+ * 				any number if str starts with pre
+ */
+int startsWith(char *pre, char *str){
+    size_t lenpre = strlen(pre),
+           lenstr = strlen(str);
+    return lenstr < lenpre ? 0 : strncmp(pre, str, lenpre) == 0;
+}
 
