@@ -10,6 +10,9 @@
 
 #define PATH_STDERR "/home/timmy/Scrivania/stderr-dataGenerator.txt"
 #define PATH_STDOUT "/home/timmy/Scrivania/stdout-dataGenerator.txt"
+#define HOUSE "house "
+#define HOUSEHOLD "household "
+#define PLUG "plug "
 
 struct measurement{
 	int date;
@@ -43,11 +46,16 @@ struct house{
 };
 typedef struct house House;
 
-void insert_house( House **, House **, int );
-void insert_household( House *, Household **, int );
-void insert_plug( Household *, Plug **, int );
+void insert_house( House **, House **, char * );
+void insert_household( House *, Household **, char * );
+void insert_plug( Household *, Plug **, char * );
 void print_houses( House * );
 void print_house( House * );
+int extract_id( char * );
+int is_a_house( char * );
+int is_a_household( char * );
+int is_a_plug( char * );
+int to_lowercase( char * );
 char *purgeInfo( char info[] );
 int split (char *str, char delimiter, char ***tokens);
 char *str_replace(char *orig, char *rep, char *with) ;
@@ -77,7 +85,16 @@ int main(int argc, char *argv[]){
 		exit(0);
 	}
 	while ( getline(&string_stderr, &len, my_stderr) != -1) {
-		printf("%s", string_stderr);
+		if( is_a_house( string_stderr ) ){
+			//TODO insert_house();
+		} else if ( is_a_household( string_stderr ) ){
+			//TODO
+		} else if ( is_a_plug( my_stderr ) ){
+			//TODO
+		} else {
+			printf("Cannot recognize this string:\n[%s]\n");
+			exit(0);
+		}
 	}
 
 	//Read from stdout
@@ -123,10 +140,18 @@ int main(int argc, char *argv[]){
 
 //TODO Remember to free memory allocated by the array of tokens.
 
-void insert_house(House **start_house, House **last_appended, int id){
+void insert_house(House **start_house, House **last_appended, char *string_id){
 	//Declaration and allocation
 	House *h;
 	h = (House *) malloc( sizeof(House) );
+	int id = -1;
+
+	//Getting id
+	id = extract_id( string_id );
+	if( id == -1 ){
+		printf("Cannot find a valid ID");
+		exit(1);
+	}
 
 	//Security checks
 	if( h == NULL ){
@@ -151,10 +176,18 @@ void insert_house(House **start_house, House **last_appended, int id){
 	*last_appended = h;
 }
 
-void insert_household(House *my_house, Household **last_appended_household, int id){
+void insert_household(House *my_house, Household **last_appended_household, char *string_id){
 	//Declaration and allocation
 	Household *hh;
 	hh = (Household *) malloc( sizeof(Household) );
+	int id = -1;
+
+	//Getting id
+	id = extract_id( string_id );
+	if( id == -1 ){
+		printf("Cannot find a valid ID");
+		exit(1);
+	}
 
 	//Security checks
 	if( hh == NULL ){
@@ -184,11 +217,18 @@ void insert_household(House *my_house, Household **last_appended_household, int 
 	*last_appended_household = hh;
 }
 
-void insert_plug(Household *my_household, Plug **last_appended_plug, int id){
+void insert_plug(Household *my_household, Plug **last_appended_plug, char *string_id){
 	//Declaration and allocation
 	Plug *p;
 	p = (Plug *) malloc( sizeof(Plug) );
+	int id = -1;
 
+	//Getting id
+	id = extract_id( string_id );
+	if( id == -1 ){
+		printf("Cannot find a valid ID");
+		exit(1);
+	}
 	//Security Checks
 	if( p == NULL ){
 			printf("Not enough memory to allocate a new Plug!\n");
@@ -235,6 +275,35 @@ void print_houses(House *start_house){
  */
 void print_house(House *my_house){
 	printf("House id: %d\n", my_house->id);
+}
+
+/*
+ * Extracts the id from the string
+ */
+int extract_id( char * ){
+	//TODO Write the function to extract id - see strstr to extract the id
+	return 1;
+}
+
+int is_a_house(char *my_string){
+	to_lowercase( my_string );
+	return startsWith(HOUSE, my_string);
+}
+
+int is_a_household(char *my_string){
+	to_lowercase( my_string );
+	return startsWith(HOUSEHOLD, my_string);
+}
+
+int is_a_plug(char *my_string){
+	to_lowercase( my_string );
+	return startsWith(PLUG, my_string);
+}
+
+void to_lowercase(char *my_string){
+	for(int i = 0; my_string[i]; i++){
+		my_string[i] = tolower(my_string[i]);
+	}
 }
 
 /*
