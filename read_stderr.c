@@ -8,10 +8,21 @@
 #include <stdlib.h>
 #include <string.h>
 
+#define PATH_STDERR "/home/timmy/Scrivania/stderr-dataGenerator.txt"
+#define PATH_STDOUT "/home/timmy/Scrivania/stdout-dataGenerator.txt"
+
+struct measurement{
+	int date;
+	int hour[24];
+	struct measurement *next;
+};
+typedef struct measurement Measurement;
+
 //Definition of plug
 struct plug{
     int id;
     int valore;
+    Measurement *my_measurements;
     struct plug *next;
 };
 typedef struct plug Plug;
@@ -44,15 +55,40 @@ int startsWith(char *pre, char *str);
 
 int main(int argc, char *argv[]){
 	int i = 0, num_token_stdout = 0, num_token_stderr = 0;
+	FILE *my_stderr = NULL;
+	FILE *my_stdout = NULL;
+	size_t len;
+	ssize_t read;
 	House *start_house = NULL;
 	House *last_appended_house = NULL;
 	Household *last_appended_household = NULL;
 	Plug *last_appended_plug = NULL;
 	char **tokens_stdout = NULL;
 	char **tokens_stderr = NULL;
-	char *string_stdout = "11,1459365287,0,1,4,68";
-	char *string_stderr = "house 0 {household 0 {plug 0, plug 1, plug 2, plug 3, plug 4, plug 5, plug 6, }, household 1 {plug 0, plug 1, plug 2, plug 3, plug 4, plug 5, plug 6, plug 7, plug 8, }, household 2 {plug 0, plug 1, plug 2, plug 3, plug 4, }, household 3 {plug 0, plug 1, plug 2, plug 3, plug 4, plug 5, plug 6, plug 7, plug 8, }, household 4 {plug 0, plug 1, plug 2, plug 3, plug 4, plug 5, plug 6, plug 7, }, household 5 {plug 0, plug 1, plug 2, plug 3, plug 4, plug 5, plug 6, plug 7, plug 8, }, }";
-	char *purged_string;
+//	char *string_stdout = "11,1459365287,0,1,4,68";
+//	char *string_stderr = "house 0 {household 0 {plug 0, plug 1, plug 2, plug 3, plug 4, plug 5, plug 6, }, household 1 {plug 0, plug 1, plug 2, plug 3, plug 4, plug 5, plug 6, plug 7, plug 8, }, household 2 {plug 0, plug 1, plug 2, plug 3, plug 4, }, household 3 {plug 0, plug 1, plug 2, plug 3, plug 4, plug 5, plug 6, plug 7, plug 8, }, household 4 {plug 0, plug 1, plug 2, plug 3, plug 4, plug 5, plug 6, plug 7, }, household 5 {plug 0, plug 1, plug 2, plug 3, plug 4, plug 5, plug 6, plug 7, plug 8, }, }";
+	char *string_stdout = NULL;
+	char *string_stderr = NULL;	char *purged_string;
+
+	//Read from stderr
+	my_stderr = fopen( PATH_STDERR, "r" );
+	if( my_stderr == NULL ){
+		printf("Cannot read from: [%s]\nTerminate execution", PATH_STDERR);
+		exit(0);
+	}
+	while ( getline(&string_stderr, &len, my_stderr) != -1) {
+		printf("%s", string_stderr);
+	}
+
+	//Read from stdout
+	my_stdout = fopen( PATH_STDOUT, "r" );
+	if( my_stdout == NULL ){
+		printf("Cannot read from: [%s]\nTerminate execution", PATH_STDOUT);
+		exit(0);
+	}
+	while ( getline(&string_stdout, &len, my_stdout) != -1) {
+		printf("%s", string_stdout);
+	}
 
 	//Clear the string received from stderr
 	purged_string = purgeInfo( string_stderr );
@@ -77,6 +113,10 @@ int main(int argc, char *argv[]){
 		insert_house( &start_house, &last_appended_house, i);
 	}
 	print_houses(start_house);
+
+	//Clearung unused memory
+	free(string_stderr);
+	free(string_stdout);
 
 	return 0;
 }
@@ -221,12 +261,13 @@ char *purgeInfo( char info[] ){
 	free( old );
 	return result;
 }
+
 /*
- * str 			-> 	Original string to split (not modified)
- * delimiter	->	The delimiters
- * tokens		->	All the parts of the string splitted in an array.
+ * str 		-> 	Original string to split (not modified)
+ * delimiter->	The delimiters
+ * tokens	->	All the parts of the string splitted in an array.
  *
- * returns 		->	The number of tokens
+ * returns 	->	The number of tokens
  */
 int split (char *str, char delimiter, char ***tokens){
     int count = 1;
