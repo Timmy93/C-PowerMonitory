@@ -66,7 +66,7 @@ int startsWith(char *pre, char *str);
 
 int main(int argc, char *argv[]){
 	int i = 0, num_token_stdout = 0, num_token_stderr = 0, lines_stdout = 0;
-	FILE *my_stderr = NULL;
+	FILE *stream_stderr = NULL;
 	FILE *my_stdout = NULL;
 	size_t len;
 	House *start_house = NULL;
@@ -78,25 +78,35 @@ int main(int argc, char *argv[]){
 //	char *string_stdout = "11,1459365287,0,1,4,68";
 //	char *string_stderr = "house 0 {household 0 {plug 0, plug 1, plug 2, plug 3, plug 4, plug 5, plug 6, }, household 1 {plug 0, plug 1, plug 2, plug 3, plug 4, plug 5, plug 6, plug 7, plug 8, }, household 2 {plug 0, plug 1, plug 2, plug 3, plug 4, }, household 3 {plug 0, plug 1, plug 2, plug 3, plug 4, plug 5, plug 6, plug 7, plug 8, }, household 4 {plug 0, plug 1, plug 2, plug 3, plug 4, plug 5, plug 6, plug 7, }, household 5 {plug 0, plug 1, plug 2, plug 3, plug 4, plug 5, plug 6, plug 7, plug 8, }, }";
 	char *string_stdout = NULL;
-	char *string_stderr = NULL;	char *purged_string;
+	char *string_stderr = NULL;
+	char *purged_string;
 
 	//Read from stderr
-	my_stderr = fopen (PATH_STDERR, "r");
-	if (my_stderr == NULL ){
+	printf("Read from stderr - START\n");
+	stream_stderr = fopen (PATH_STDERR, "r");
+	if (stream_stderr == NULL ){
 		printf("Cannot read from: [%s]\nTerminate execution", PATH_STDERR);
 		exit(0);
 	}
-	while (getline(&string_stderr, &len, my_stderr) != -1) {
-		if (is_a_house (string_stderr ) ){
-			insert_house(&start_house, &last_appended_house, string_stderr);
-		} else if (is_a_household (string_stderr ) ){
-			insert_household(last_appended_house, &last_appended_household, string_stderr);
-		} else if (is_a_plug (string_stderr ) ){
-			insert_plug(last_appended_household, &last_appended_plug, string_stderr);
-		} else {
-			printf("Cannot recognize this string:\n[%s]\n", string_stderr);
-			exit(0);
+
+	while (getline(&string_stderr, &len, stream_stderr) != -1) {
+		//Now I purge and tokenize what I've read
+		purged_string = purgeInfo (string_stderr);
+		num_token_stderr = split (purged_string, ',', &tokens_stderr);
+
+		for(i = 0; i<num_token_stderr; i++){
+			if (is_a_house (tokens_stderr[i] ) ){
+				insert_house(&start_house, &last_appended_house, tokens_stderr[i]);
+			} else if (is_a_household (tokens_stderr[i] ) ){
+				insert_household(last_appended_house, &last_appended_household, tokens_stderr[i]);
+			} else if (is_a_plug (tokens_stderr[i] ) ){
+				insert_plug(last_appended_household, &last_appended_plug, tokens_stderr[i]);
+			} else {
+				printf("Cannot recognize this string:\n[%s]\n", tokens_stderr[i]);
+				exit(0);
+			}
 		}
+
 	}
 
 	//Count lines stdout
@@ -281,10 +291,31 @@ void print_house(House *my_house){
  * Extracts the id from the string
  */
 int extract_id (char *full_string, char *to_remove){
-	int id = -1;
-	while ((full_string = strstr(full_string, to_remove)) ){
-		memmove(full_string, full_string+strlen(to_remove),1+strlen(full_string+strlen(to_remove)));
+	int id = -1, i = 0, j = 0;
+	char *extracted_id;
+
+//	printf("fullstring is %d characters lenght\nto_remove is %d characthers lenght\n", (int)strlen(full_string), (int)strlen(to_remove));
+
+	extracted_id = (char *) malloc (sizeof ((full_string[0])*strlen(full_string)));
+	for(i=0; i < strlen(to_remove); i++){
+		if(full_string[i] == to_remove[i]){
+			//Ok - continue counting
+		} else {
+			printf("Second string isn't a substring of the first one\nTerminate execution\n");
+			exit(1);
+		}
 	}
+	j = i;
+
+	for(i=0; i+j<strlen(full_string) ;i++){
+		if(full_string[i+j] != ' ' && full_string[i+j] != '\n')
+		extracted_id[i] = full_string[i+j];
+	}
+
+//	while ((full_string = strstr(full_string, to_remove))){
+//		memmove(full_string, full_string+strlen(to_remove),1+strlen(full_string+strlen(to_remove)));
+//	}
+	printf("Extracted_id: [%s]\tOriginal string is: [%s]\n", extracted_id, full_string);
 	id = atoi (full_string);
 	//TODO do NOT trust ATOI
 	if (id < 0 ){
