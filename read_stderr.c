@@ -54,6 +54,7 @@ void insert_plug (Household *, Plug **, char *);
 void print_houses (House *);
 void print_house (House *);
 int extract_id (char *, char*);
+char *remove_substring(char *, char * );
 int is_a_house (char *);
 int is_a_household (char *);
 int is_a_plug (char *);
@@ -85,7 +86,7 @@ int main(int argc, char *argv[]){
 	printf("Read from stderr - START\n");
 	stream_stderr = fopen (PATH_STDERR, "r");
 	if (stream_stderr == NULL ){
-		printf("Cannot read from: [%s]\nTerminate execution", PATH_STDERR);
+		printf("Cannot read from: [%s]\nTerminate execution\n", PATH_STDERR);
 		exit(0);
 	}
 
@@ -106,8 +107,9 @@ int main(int argc, char *argv[]){
 				exit(0);
 			}
 		}
-
+		printf("Finished to create an house\n");
 	}
+	printf("Finished to create the world\n");
 
 	//Count lines stdout
 	lines_stdout = count_lines_stdout (LINES_STDOUT);
@@ -291,37 +293,38 @@ void print_house(House *my_house){
  * Extracts the id from the string
  */
 int extract_id (char *full_string, char *to_remove){
-	int id = -1, i = 0, j = 0;
+	int id = -1;
 	char *extracted_id;
+	//Now I remove to remove from full string
+	extracted_id = remove_substring(full_string, to_remove);
 
-//	printf("fullstring is %d characters lenght\nto_remove is %d characthers lenght\n", (int)strlen(full_string), (int)strlen(to_remove));
-
-	extracted_id = (char *) malloc (sizeof ((full_string[0])*strlen(full_string)));
-	for(i=0; i < strlen(to_remove); i++){
-		if(full_string[i] == to_remove[i]){
-			//Ok - continue counting
-		} else {
-			printf("Second string isn't a substring of the first one\nTerminate execution\n");
-			exit(1);
-		}
-	}
-	j = i;
-
-	for(i=0; i+j<strlen(full_string) ;i++){
-		if(full_string[i+j] != ' ' && full_string[i+j] != '\n')
-		extracted_id[i] = full_string[i+j];
-	}
-
-//	while ((full_string = strstr(full_string, to_remove))){
-//		memmove(full_string, full_string+strlen(to_remove),1+strlen(full_string+strlen(to_remove)));
-//	}
-	printf("Extracted_id: [%s]\tOriginal string is: [%s]\n", extracted_id, full_string);
-	id = atoi (full_string);
+//	printf("Extracted_id: [%s]\tOriginal string is: [%s]\n", extracted_id, full_string);
+	id = atoi (extracted_id);
 	//TODO do NOT trust ATOI
 	if (id < 0 ){
 		return -1;
 	}
 	return id;
+}
+
+char *remove_substring(char *full_string, char * to_remove){
+	int i = 0, j= 0;
+	char *extracted_id;
+	extracted_id = (char *) malloc (sizeof ((full_string[0])*strlen(full_string)));
+	for(i=0; i < strlen(to_remove); i++){
+		if(full_string[i] == to_remove[i]){
+			//Ok - continue counting
+		} else {
+		printf("Second string isn't a substring of the first one\nTerminate execution\n");
+			exit(1);
+		}
+	}
+	j = i;
+	for(i=0; i+j<strlen(full_string) ;i++){
+		if(full_string[i+j] != ' ' && full_string[i+j] != '\n')
+		extracted_id[i] = full_string[i+j];
+	}
+	return extracted_id;
 }
 
 int is_a_house(char *my_string){
