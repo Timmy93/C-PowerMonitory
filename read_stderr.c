@@ -10,6 +10,7 @@
 
 #define PATH_STDERR "/home/timmy/Scrivania/stderr-dataGenerator.txt"
 #define PATH_STDOUT "/home/timmy/Scrivania/stdout-dataGenerator.txt"
+#define LINES_STDOUT "/home/timmy/Scrivania/stdout-lines.txt"
 #define HOUSE "house "
 #define HOUSEHOLD "household "
 #define PLUG "plug "
@@ -55,6 +56,7 @@ int extract_id( char * );
 int is_a_house( char * );
 int is_a_household( char * );
 int is_a_plug( char * );
+int count_lines_stdout( char * );
 int to_lowercase( char * );
 char *purgeInfo( char info[] );
 int split (char *str, char delimiter, char ***tokens);
@@ -62,7 +64,7 @@ char *str_replace(char *orig, char *rep, char *with) ;
 int startsWith(char *pre, char *str);
 
 int main(int argc, char *argv[]){
-	int i = 0, num_token_stdout = 0, num_token_stderr = 0;
+	int i = 0, num_token_stdout = 0, num_token_stderr = 0, lines_stdout = 0;
 	FILE *my_stderr = NULL;
 	FILE *my_stdout = NULL;
 	size_t len;
@@ -96,6 +98,10 @@ int main(int argc, char *argv[]){
 			exit(0);
 		}
 	}
+
+	//Count lines stdout
+	lines_stdout = count_lines_stdout( LINES_STDOUT );
+	prinf("Stdout has: %d lines", lines_stdout);
 
 	//Read from stdout
 	my_stdout = fopen( PATH_STDOUT, "r" );
@@ -298,6 +304,33 @@ int is_a_household(char *my_string){
 int is_a_plug(char *my_string){
 	to_lowercase( my_string );
 	return startsWith(PLUG, my_string);
+}
+
+/*
+ * Count lines of stdout
+ */
+int count_lines_stdout( char *file ){
+	FILE *file_stdout = NULL;
+	int lines = 0, temp = 0;
+	char *temp_line;
+
+	file_stdout = fopen(file, "r");
+	if( file_stdout == NULL ){
+		printf("Cannot find lines file\nTerminate execution\n");
+		exit(1);
+	}
+	temp = getline( &temp_line, &temp, file_stdout );
+	if( temp == -1 ){
+		printf("Cannot read anything\nTerminate execution\n");
+		exit(1);
+	}
+	//TODO Do not trust the file - Do your function! - Atoi is NOT suggested
+	lines =  atoi( temp_line );
+	if( lines < 1 ){
+		printf("Error converting line\nTerminate execution\n");
+		exit(1);
+	}
+	return lines;
 }
 
 void to_lowercase(char *my_string){
