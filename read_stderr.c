@@ -52,12 +52,12 @@ void insert_household( House *, Household **, char * );
 void insert_plug( Household *, Plug **, char * );
 void print_houses( House * );
 void print_house( House * );
-int extract_id( char * );
+int extract_id( char *, char* );
 int is_a_house( char * );
 int is_a_household( char * );
 int is_a_plug( char * );
 int count_lines_stdout( char * );
-int to_lowercase( char * );
+void to_lowercase( char * );
 char *purgeInfo( char info[] );
 int split (char *str, char delimiter, char ***tokens);
 char *str_replace(char *orig, char *rep, char *with) ;
@@ -68,7 +68,6 @@ int main(int argc, char *argv[]){
 	FILE *my_stderr = NULL;
 	FILE *my_stdout = NULL;
 	size_t len;
-	ssize_t read;
 	House *start_house = NULL;
 	House *last_appended_house = NULL;
 	Household *last_appended_household = NULL;
@@ -88,20 +87,20 @@ int main(int argc, char *argv[]){
 	}
 	while ( getline(&string_stderr, &len, my_stderr) != -1) {
 		if( is_a_house( string_stderr ) ){
-			//TODO insert_house();
+			insert_house(&start_house, &last_appended_house, string_stderr);
 		} else if ( is_a_household( string_stderr ) ){
-			//TODO
-		} else if ( is_a_plug( my_stderr ) ){
-			//TODO
+			insert_household(last_appended_house, &last_appended_household, string_stderr);
+		} else if ( is_a_plug( string_stderr ) ){
+			insert_plug(last_appended_household, &last_appended_plug, string_stderr);
 		} else {
-			printf("Cannot recognize this string:\n[%s]\n");
+			printf("Cannot recognize this string:\n[%s]\n", string_stderr);
 			exit(0);
 		}
 	}
 
 	//Count lines stdout
 	lines_stdout = count_lines_stdout( LINES_STDOUT );
-	prinf("Stdout has: %d lines", lines_stdout);
+	printf("Stdout has: %d lines\n", lines_stdout);
 
 	//Read from stdout
 	my_stdout = fopen( PATH_STDOUT, "r" );
@@ -131,12 +130,6 @@ int main(int argc, char *argv[]){
 		printf("token #%d: %s\n", i, tokens_stdout[i]);
 	}
 
-
-	for(i = 0; i < 5; i++){
-		insert_house( &start_house, &last_appended_house, i);
-	}
-	print_houses(start_house);
-
 	//Clearung unused memory
 	free(string_stderr);
 	free(string_stdout);
@@ -153,7 +146,7 @@ void insert_house(House **start_house, House **last_appended, char *string_id){
 	int id = -1;
 
 	//Getting id
-	id = extract_id( string_id );
+	id = extract_id( string_id, HOUSE );
 	if( id == -1 ){
 		printf("Cannot find a valid ID");
 		exit(1);
@@ -189,7 +182,7 @@ void insert_household(House *my_house, Household **last_appended_household, char
 	int id = -1;
 
 	//Getting id
-	id = extract_id( string_id );
+	id = extract_id( string_id, HOUSEHOLD );
 	if( id == -1 ){
 		printf("Cannot find a valid ID");
 		exit(1);
@@ -230,7 +223,7 @@ void insert_plug(Household *my_household, Plug **last_appended_plug, char *strin
 	int id = -1;
 
 	//Getting id
-	id = extract_id( string_id );
+	id = extract_id( string_id, PLUG );
 	if( id == -1 ){
 		printf("Cannot find a valid ID");
 		exit(1);
@@ -286,9 +279,17 @@ void print_house(House *my_house){
 /*
  * Extracts the id from the string
  */
-int extract_id( char * ){
-	//TODO Write the function to extract id - see strstr to extract the id
-	return 1;
+int extract_id( char *full_string, char *to_remove){
+	int id = -1;
+	while( (full_string = strstr(full_string, to_remove)) ){
+	    memmove(full_string, full_string+strlen(to_remove),1+strlen(full_string+strlen(to_remove)));
+	}
+	id = atoi( full_string );
+	//TODO do NOT trust ATOI
+	if( id < 0 ){
+		return -1;
+	}
+	return id;
 }
 
 int is_a_house(char *my_string){
@@ -313,13 +314,14 @@ int count_lines_stdout( char *file ){
 	FILE *file_stdout = NULL;
 	int lines = 0, temp = 0;
 	char *temp_line;
+	size_t temp2;
 
 	file_stdout = fopen(file, "r");
 	if( file_stdout == NULL ){
 		printf("Cannot find lines file\nTerminate execution\n");
 		exit(1);
 	}
-	temp = getline( &temp_line, &temp, file_stdout );
+	temp = getline( &temp_line, &temp2, file_stdout );
 	if( temp == -1 ){
 		printf("Cannot read anything\nTerminate execution\n");
 		exit(1);
@@ -333,9 +335,13 @@ int count_lines_stdout( char *file ){
 	return lines;
 }
 
+//TODO Test this function
 void to_lowercase(char *my_string){
-	for(int i = 0; my_string[i]; i++){
-		my_string[i] = tolower(my_string[i]);
+	int i;
+	char x;
+	for(i = 0; my_string[i]; i++){
+		x = (char) tolower(my_string[i]);
+		my_string[i] = x;
 	}
 }
 
