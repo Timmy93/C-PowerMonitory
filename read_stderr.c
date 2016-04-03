@@ -7,6 +7,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <ctype.h>
 
 #define PATH_STDERR "/home/timmy/Scrivania/stderr-dataGenerator.txt"
 #define PATH_STDOUT "/home/timmy/Scrivania/stdout-dataGenerator.txt"
@@ -24,10 +25,10 @@ typedef struct measurement Measurement;
 
 //Definition of plug
 struct plug{
-    int id;
-    int valore;
-    Measurement *my_measurements;
-    struct plug *next;
+	int id;
+	int valore;
+	Measurement *my_measurements;
+	struct plug *next;
 };
 typedef struct plug Plug;
 
@@ -47,18 +48,18 @@ struct house{
 };
 typedef struct house House;
 
-void insert_house( House **, House **, char * );
-void insert_household( House *, Household **, char * );
-void insert_plug( Household *, Plug **, char * );
-void print_houses( House * );
-void print_house( House * );
-int extract_id( char *, char* );
-int is_a_house( char * );
-int is_a_household( char * );
-int is_a_plug( char * );
-int count_lines_stdout( char * );
-void to_lowercase( char * );
-char *purgeInfo( char info[] );
+void insert_house (House **, House **, char *);
+void insert_household (House *, Household **, char *);
+void insert_plug (Household *, Plug **, char *);
+void print_houses (House *);
+void print_house (House *);
+int extract_id (char *, char*);
+int is_a_house (char *);
+int is_a_household (char *);
+int is_a_plug (char *);
+int count_lines_stdout (char *);
+void to_lowercase (char *);
+char *purgeInfo (char info[]);
 int split (char *str, char delimiter, char ***tokens);
 char *str_replace(char *orig, char *rep, char *with) ;
 int startsWith(char *pre, char *str);
@@ -80,17 +81,17 @@ int main(int argc, char *argv[]){
 	char *string_stderr = NULL;	char *purged_string;
 
 	//Read from stderr
-	my_stderr = fopen( PATH_STDERR, "r" );
-	if( my_stderr == NULL ){
+	my_stderr = fopen (PATH_STDERR, "r");
+	if (my_stderr == NULL ){
 		printf("Cannot read from: [%s]\nTerminate execution", PATH_STDERR);
 		exit(0);
 	}
-	while ( getline(&string_stderr, &len, my_stderr) != -1) {
-		if( is_a_house( string_stderr ) ){
+	while (getline(&string_stderr, &len, my_stderr) != -1) {
+		if (is_a_house (string_stderr ) ){
 			insert_house(&start_house, &last_appended_house, string_stderr);
-		} else if ( is_a_household( string_stderr ) ){
+		} else if (is_a_household (string_stderr ) ){
 			insert_household(last_appended_house, &last_appended_household, string_stderr);
-		} else if ( is_a_plug( string_stderr ) ){
+		} else if (is_a_plug (string_stderr ) ){
 			insert_plug(last_appended_household, &last_appended_plug, string_stderr);
 		} else {
 			printf("Cannot recognize this string:\n[%s]\n", string_stderr);
@@ -99,24 +100,24 @@ int main(int argc, char *argv[]){
 	}
 
 	//Count lines stdout
-	lines_stdout = count_lines_stdout( LINES_STDOUT );
+	lines_stdout = count_lines_stdout (LINES_STDOUT);
 	printf("Stdout has: %d lines\n", lines_stdout);
 
 	//Read from stdout
-	my_stdout = fopen( PATH_STDOUT, "r" );
-	if( my_stdout == NULL ){
+	my_stdout = fopen (PATH_STDOUT, "r");
+	if (my_stdout == NULL ){
 		printf("Cannot read from: [%s]\nTerminate execution", PATH_STDOUT);
 		exit(0);
 	}
-	while ( getline(&string_stdout, &len, my_stdout) != -1) {
+	while (getline(&string_stdout, &len, my_stdout) != -1) {
 		printf("%s", string_stdout);
 	}
 
 	//Clear the string received from stderr
-	purged_string = purgeInfo( string_stderr );
-	num_token_stderr = split( purged_string, ',', &tokens_stderr );
+	purged_string = purgeInfo (string_stderr);
+	num_token_stderr = split (purged_string, ',', &tokens_stderr);
 	for (i = 0; i < num_token_stderr; i++){
-		if( startsWith( "household ", tokens_stderr[i] ) ){
+		if (startsWith ("household ", tokens_stderr[i] ) ){
 			printf("token #%d: %s\n", i, tokens_stderr[i]);
 		} else {
 			printf("Not an household\n");
@@ -142,18 +143,18 @@ int main(int argc, char *argv[]){
 void insert_house(House **start_house, House **last_appended, char *string_id){
 	//Declaration and allocation
 	House *h;
-	h = (House *) malloc( sizeof(House) );
+	h = (House *) malloc (sizeof(House));
 	int id = -1;
 
 	//Getting id
-	id = extract_id( string_id, HOUSE );
-	if( id == -1 ){
+	id = extract_id (string_id, HOUSE);
+	if (id == -1 ){
 		printf("Cannot find a valid ID");
 		exit(1);
 	}
 
 	//Security checks
-	if( h == NULL ){
+	if (h == NULL ){
 		printf("Not enough memory to allocate a new House!\n");
 		exit(0);
 	}
@@ -164,7 +165,7 @@ void insert_house(House **start_house, House **last_appended, char *string_id){
 	h->next = NULL;
 
 	//Appending to the end of the list
-	if( *start_house == NULL ){
+	if (*start_house == NULL ){
 		//First House of the list
 		*start_house = h;
 	} else {
@@ -178,23 +179,23 @@ void insert_house(House **start_house, House **last_appended, char *string_id){
 void insert_household(House *my_house, Household **last_appended_household, char *string_id){
 	//Declaration and allocation
 	Household *hh;
-	hh = (Household *) malloc( sizeof(Household) );
+	hh = (Household *) malloc (sizeof(Household));
 	int id = -1;
 
 	//Getting id
-	id = extract_id( string_id, HOUSEHOLD );
-	if( id == -1 ){
+	id = extract_id (string_id, HOUSEHOLD);
+	if (id == -1 ){
 		printf("Cannot find a valid ID");
 		exit(1);
 	}
 
 	//Security checks
-	if( hh == NULL ){
+	if (hh == NULL ){
 		printf("Not enough memory to allocate a new Household!\n");
 		exit(0);
 	}
 	//Insertion of an household before the creation of an house - Something wrong
-	if( my_house == NULL ){
+	if (my_house == NULL ){
 		printf("Error: No House - Cannot insert a new Household\n");
 		exit(0);
 	}
@@ -205,7 +206,7 @@ void insert_household(House *my_house, Household **last_appended_household, char
 	hh->next = NULL;
 
 	//Updating references
-	if( my_house->h_households == NULL ){
+	if (my_house->h_households == NULL ){
 		//Last household refers to an other House
 		my_house->h_households = hh;
 	} else {
@@ -219,22 +220,22 @@ void insert_household(House *my_house, Household **last_appended_household, char
 void insert_plug(Household *my_household, Plug **last_appended_plug, char *string_id){
 	//Declaration and allocation
 	Plug *p;
-	p = (Plug *) malloc( sizeof(Plug) );
+	p = (Plug *) malloc (sizeof(Plug));
 	int id = -1;
 
 	//Getting id
-	id = extract_id( string_id, PLUG );
-	if( id == -1 ){
+	id = extract_id (string_id, PLUG);
+	if (id == -1 ){
 		printf("Cannot find a valid ID");
 		exit(1);
 	}
 	//Security Checks
-	if( p == NULL ){
+	if (p == NULL ){
 			printf("Not enough memory to allocate a new Plug!\n");
 			exit(0);
 	}
 	//Insertion of a plug before the creation of an household - something wrong
-	if( my_household == NULL ){
+	if (my_household == NULL ){
 		printf("Error: No Household - Cannot insert a new Plug\n");
 		exit(0);
 	}
@@ -246,7 +247,7 @@ void insert_plug(Household *my_household, Plug **last_appended_plug, char *strin
 	p->valore = 0;
 
 	//Updating references
-	if( my_household->hh_plugs == NULL ){
+	if (my_household->hh_plugs == NULL ){
 		//Last Plug references to an other household
 		my_household->hh_plugs = p;
 	} else {
@@ -262,7 +263,7 @@ void insert_plug(Household *my_household, Plug **last_appended_plug, char *strin
  */
 void print_houses(House *start_house){
 	printf("Start printing...\n");
-	while( start_house != NULL ){
+	while (start_house != NULL ){
 		print_house(start_house);
 		start_house = start_house->next;
 	}
@@ -279,68 +280,68 @@ void print_house(House *my_house){
 /*
  * Extracts the id from the string
  */
-int extract_id( char *full_string, char *to_remove){
+int extract_id (char *full_string, char *to_remove){
 	int id = -1;
-	while( (full_string = strstr(full_string, to_remove)) ){
-	    memmove(full_string, full_string+strlen(to_remove),1+strlen(full_string+strlen(to_remove)));
+	while ((full_string = strstr(full_string, to_remove)) ){
+		memmove(full_string, full_string+strlen(to_remove),1+strlen(full_string+strlen(to_remove)));
 	}
-	id = atoi( full_string );
+	id = atoi (full_string);
 	//TODO do NOT trust ATOI
-	if( id < 0 ){
+	if (id < 0 ){
 		return -1;
 	}
 	return id;
 }
 
 int is_a_house(char *my_string){
-	to_lowercase( my_string );
+	to_lowercase (my_string);
 	return startsWith(HOUSE, my_string);
 }
 
 int is_a_household(char *my_string){
-	to_lowercase( my_string );
+	to_lowercase (my_string);
 	return startsWith(HOUSEHOLD, my_string);
 }
 
 int is_a_plug(char *my_string){
-	to_lowercase( my_string );
+	to_lowercase (my_string);
 	return startsWith(PLUG, my_string);
 }
 
 /*
  * Count lines of stdout
  */
-int count_lines_stdout( char *file ){
+int count_lines_stdout (char *file ){
 	FILE *file_stdout = NULL;
 	int lines = 0, temp = 0;
 	char *temp_line;
 	size_t temp2;
 
 	file_stdout = fopen(file, "r");
-	if( file_stdout == NULL ){
+	if (file_stdout == NULL ){
 		printf("Cannot find lines file\nTerminate execution\n");
 		exit(1);
 	}
-	temp = getline( &temp_line, &temp2, file_stdout );
-	if( temp == -1 ){
+	temp = getline (&temp_line, &temp2, file_stdout);
+	if (temp == -1 ){
 		printf("Cannot read anything\nTerminate execution\n");
 		exit(1);
 	}
 	//TODO Do not trust the file - Do your function! - Atoi is NOT suggested
-	lines =  atoi( temp_line );
-	if( lines < 1 ){
+	lines = atoi (temp_line);
+	if (lines < 1 ){
 		printf("Error converting line\nTerminate execution\n");
 		exit(1);
 	}
 	return lines;
 }
 
-//TODO Test this function
+//TODO Solve the warning
 void to_lowercase(char *my_string){
 	int i;
 	char x;
 	for(i = 0; my_string[i]; i++){
-		x = (char) tolower(my_string[i]);
+		x = tolower (my_string[i]);
 		my_string[i] = x;
 	}
 }
@@ -350,23 +351,23 @@ void to_lowercase(char *my_string){
  *
  * NB: Remember to free the return value!
  */
-char *purgeInfo( char info[] ){
+char *purgeInfo (char info[] ){
 	char *result = info;
 	char *old;
 	//Each time I free the memory dynamically allocated when I don't use it anymore
-	result = str_replace( result, ", }, }", "");
+	result = str_replace (result, ", }, }", "");
 	old = result;
-	result = str_replace( result, "}, ", "");
-	free( old );
+	result = str_replace (result, "}, ", "");
+	free (old);
 	old = result;
-	result = str_replace( result, "}", "");
-	free( old );
+	result = str_replace (result, "}", "");
+	free (old);
 	old = result;
-	result = str_replace( result, ", ", ",");
-	free( old );
+	result = str_replace (result, ", ", ",");
+	free (old);
 	old = result;
-	result = str_replace( result, " {", ",");
-	free( old );
+	result = str_replace (result, " {", ",");
+	free (old);
 	return result;
 }
 
@@ -378,63 +379,59 @@ char *purgeInfo( char info[] ){
  * returns 	->	The number of tokens
  */
 int split (char *str, char delimiter, char ***tokens){
-    int count = 1;
-    int token_len = 1;
-    int i = 0;
-    char *p;
-    char *t;
+	int count = 1;
+	int token_len = 1;
+	int i = 0;
+	char *p;
+	char *t;
 
-    p = str;
-    while (*p != '\0')
-    {
-        if (*p == delimiter)
-            count++;
-        p++;
-    }
+	p = str;
+	while (*p != '\0'){
+		if (*p == delimiter){
+			count++;
+		}
+		p++;
+	}
 
-    *tokens = (char**) malloc(sizeof(char*) * count);
-    if (*tokens == NULL)
-        exit(1);
+	*tokens = (char**) malloc(sizeof(char*) *count);
+	if (*tokens == NULL){
+		exit(1);
+	}
 
-    p = str;
-    while (*p != '\0')
-    {
-        if (*p == delimiter)
-        {
-            (*tokens)[i] = (char*) malloc( sizeof(char) * token_len );
-            if ((*tokens)[i] == NULL)
-                exit(1);
+	p = str;
+	while (*p != '\0'){
+		if (*p == delimiter){
+			(*tokens)[i] = (char*) malloc (sizeof(char) *token_len);
+			if ((*tokens)[i] == NULL){
+				exit(1);
+			}
+			token_len = 0;
+			i++;
+		}
+		p++;
+		token_len++;
+	}
+	(*tokens)[i] = (char*) malloc (sizeof(char) *token_len);
+	if ((*tokens)[i] == NULL){
+		exit(1);
+	}
 
-            token_len = 0;
-            i++;
-        }
-        p++;
-        token_len++;
-    }
-    (*tokens)[i] = (char*) malloc( sizeof(char) * token_len );
-    if ((*tokens)[i] == NULL)
-        exit(1);
+	i = 0;
+	p = str;
+	t = ((*tokens)[i]);
+	while (*p != '\0'){
+		if (*p != delimiter && *p != '\0'){
+			*t = *p;
+			t++;
+		} else {
+			*t = '\0';
+			i++;
+			t = ((*tokens)[i]);
+		}
+		p++;
+	}
 
-    i = 0;
-    p = str;
-    t = ((*tokens)[i]);
-    while (*p != '\0')
-    {
-        if (*p != delimiter && *p != '\0')
-        {
-            *t = *p;
-            t++;
-        }
-        else
-        {
-            *t = '\0';
-            i++;
-            t = ((*tokens)[i]);
-        }
-        p++;
-    }
-
-    return count;
+	return count;
 }
 
 /*
@@ -445,47 +442,47 @@ int split (char *str, char delimiter, char ***tokens){
  * returns	->	The replaced string NB. Must call the function free to free memory.
  */
 char *str_replace(char *orig, char *rep, char *with) {
-    char *result; // the return string
-    char *ins;    // the next insert point
-    char *tmp;    // varies
-    int len_rep;  // length of rep
-    int len_with; // length of with
-    int len_front; // distance between rep and end of last rep
-    int count;    // number of replacements
+	char *result; // the return string
+	char *ins;	// the next insert point
+	char *tmp;	// varies
+	int len_rep;  // length of rep
+	int len_with; // length of with
+	int len_front; // distance between rep and end of last rep
+	int count;	// number of replacements
 
-    if (!orig)
-        return NULL;
-    if (!rep)
-        rep = "";
-    len_rep = strlen(rep);
-    if (!with)
-        with = "";
-    len_with = strlen(with);
+	if (!orig)
+		return NULL;
+	if (!rep)
+		rep = "";
+	len_rep = strlen(rep);
+	if (!with)
+		with = "";
+	len_with = strlen(with);
 
-    ins = orig;
-    for (count = 0; (tmp = strstr(ins, rep)); ++count) {
-        ins = tmp + len_rep;
-    }
+	ins = orig;
+	for (count = 0; (tmp = strstr(ins, rep)); ++count) {
+		ins = tmp + len_rep;
+	}
 
-    // first time through the loop, all the variable are set correctly
-    // from here on,
-    //    tmp points to the end of the result string
-    //    ins points to the next occurrence of rep in orig
-    //    orig points to the remainder of orig after "end of rep"
-    tmp = result = malloc(strlen(orig) + (len_with - len_rep) * count + 1);
+	// first time through the loop, all the variable are set correctly
+	// from here on,
+	//	tmp points to the end of the result string
+	//	ins points to the next occurrence of rep in orig
+	//	orig points to the remainder of orig after "end of rep"
+	tmp = result = malloc(strlen(orig) + (len_with - len_rep) *count + 1);
 
-    if (!result)
-        return NULL;
+	if (!result)
+		return NULL;
 
-    while (count--) {
-        ins = strstr(orig, rep);
-        len_front = ins - orig;
-        tmp = strncpy(tmp, orig, len_front) + len_front;
-        tmp = strcpy(tmp, with) + len_with;
-        orig += len_front + len_rep; // move to next "end of rep"
-    }
-    strcpy(tmp, orig);
-    return result;
+	while (count--) {
+		ins = strstr(orig, rep);
+		len_front = ins - orig;
+		tmp = strncpy(tmp, orig, len_front) + len_front;
+		tmp = strcpy(tmp, with) + len_with;
+		orig += len_front + len_rep; // move to next "end of rep"
+	}
+	strcpy(tmp, orig);
+	return result;
 }
 
 /*
@@ -496,8 +493,8 @@ char *str_replace(char *orig, char *rep, char *with) {
  * 				any number if str starts with pre
  */
 int startsWith(char *pre, char *str){
-    size_t lenpre = strlen(pre),
-           lenstr = strlen(str);
-    return lenstr < lenpre ? 0 : strncmp(pre, str, lenpre) == 0;
+	size_t lenpre = strlen(pre),
+		   lenstr = strlen(str);
+	return lenstr < lenpre ? 0 : strncmp(pre, str, lenpre) == 0;
 }
 
