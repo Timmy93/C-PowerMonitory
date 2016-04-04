@@ -49,10 +49,10 @@ struct house{
 typedef struct house House;
 
 void elaborate_stdout(House *, House **, Household **, Plug **, char *);
-void reach_house(House **, char *);
-void reach_houshold(Household **, char *);
-void reach_plug(Plug **, char *);
-void insert_data(Plug *, char *, char *);
+void reach_house(House *, House **, Household **, Plug **, int);
+void reach_household(Household **, Plug **, int);
+void reach_plug(Plug **, int);
+void insert_data(Plug *, long, int);
 void create_initial_structure(char *, House **);
 void elaborate_stderr(House **, House **, Household **, Plug **, char *);
 void insert_house (House **, House **, char *);
@@ -90,7 +90,11 @@ int main(int argc, char *argv[]){
 	lines_stdout = count_lines_stdout(LINES_STDOUT);
 	printf("Stdout has: %d lines\n", lines_stdout);
 
+	//TODO I fill the memory doing this - Somewhere I don't free memory
 	//Read from stdout
+	last_house = start_house;
+	last_household = start_house->h_households;
+	last_plug = start_house->h_households->hh_plugs;
 	my_stdout = open_file(PATH_STDOUT);
 	while (getline(&string_stdout, &len, my_stdout) != -1) {
 		elaborate_stdout(start_house, &last_house, &last_household, &last_plug, string_stdout);
@@ -108,6 +112,8 @@ int main(int argc, char *argv[]){
 void elaborate_stdout(House *start_h, House **last_h, Household **last_hh, Plug **last_p, char *my_string){
 	char **token = NULL;
 	int num_token_stdout = 0;
+	int id_house = -1, id_household = -1, id_plug = -1, value = -1;
+	long timestamp = 0;
 
 	//Split the string - No need to be cleared
 	num_token_stdout = split (my_string, ',', &token);
@@ -125,33 +131,79 @@ void elaborate_stdout(House *start_h, House **last_h, Household **last_hh, Plug 
 	 * token[4]	->	plug id
 	 * token[5]	->	value of measurement
 	 */
+	//Transform string to int
+	timestamp = atol(token[1]);
+	id_house = atoi(token[2]);
+	id_household = atoi(token[3]);
+	id_plug = atoi(token[4]);
+	value = atoi(token[5]);
+
 	//Update references before update data
-	reach_house(last_h, token[2]);
-	reach_houshold(last_hh, token[3]);
-	reach_plug(last_p, token[4]);
+	reach_house(start_h, last_h, last_hh, last_p, id_house);
+	reach_household(last_hh, last_p, id_household);
+	reach_plug(last_p, id_plug);
 
 	//Update data
-	insert_data(*last_p, token[1], token[5]);
+	insert_data(*last_p, timestamp, value);
 
 }
 
-//TODO
-void reach_house(House **last_h, char *id_house){
-	;
+void reach_house(House *start_h, House **last_h, Household **last_hh, Plug **last_p, int id){
+	if((*last_h)->id == id){
+		//It's the current house, we can exit
+		return;
+	} else if((*last_h)->id < id){
+		//We go to the next house - Update all references, not only the ref of the house
+		*last_h = (*last_h)->next;
+		*last_hh = (*last_h)->h_households;
+		*last_p = (*last_h)->h_households->hh_plugs;
+		reach_house(start_h, last_h, last_hh, last_p, id);
+		printf("Updated House\n");
+		return;
+	} else {
+		//New set of measurements - restart from House 0
+		*last_h = start_h;
+		*last_hh = start_h->h_households;
+		*last_p = start_h->h_households->hh_plugs;
+		reach_house(start_h, last_h, last_hh, last_p, id);
+	}
 }
 
-//TODO
-void reach_houshold(Household **last_hh, char *id_household){
-	;
+void reach_household(Household **last_hh, Plug **last_p, int id){
+	if((*last_hh)->id == id){
+		//It's the current household, we can exit
+		return;
+	} else if((*last_hh)->id < id){
+		//We go to the next household - We update the ref also of the plug
+		*last_hh = (*last_hh)->next;
+		*last_p = (*last_hh)->hh_plugs;
+		reach_household(last_hh, last_p, id);
+		printf("Updated Household\n");
+		return;
+	} else {
+		printf("Something went wrong: household_id: %d\nTerminate\n", id);
+		exit(1);
+	}
 }
 
-//TODO
-void reach_plug(Plug **last_p, char *id_plug){
-	;
+void reach_plug(Plug **last_p, int id){
+	if((*last_p)->id == id){
+		//It's the current plug, we can exit
+		return;
+	} else if((*last_p)->id < id){
+		//We go to the next plug
+		*last_p = (*last_p)->next;
+		reach_plug(last_p, id);
+		printf("Updated Plug\n");
+		return;
+	} else {
+		printf("Something went wrong: plug_id: %d\nTerminate\n", id);
+		exit(1);
+	}
 }
 
 //TODO Write how to update data
-void insert_data(Plug *last_p, char *timestamp, char *value_measurement){
+void insert_data(Plug *last_p, long timestamp, int value_measurement){
 
 }
 
@@ -313,7 +365,7 @@ void insert_plug(Household *my_household, Plug **last_appended_plug, char *strin
 	//Initialization
 	p->id = id;
 	p->next = NULL;
-	//TODO Do something with the value
+	//TODO maybe to be removed and insert the structure measutements
 	p->valore = 0;
 
 	//Updating references
@@ -358,7 +410,6 @@ int extract_id (char *full_string, char *to_remove){
 
 //	printf("Extracted_id: [%s]\tOriginal string is: [%s]\n", extracted_id, full_string);
 	id = atoi (extracted_id);
-	//TODO do NOT trust ATOI
 	if (id < 0 ){
 		return -1;
 	}
@@ -415,7 +466,6 @@ int count_lines_stdout (char *file ){
 		printf("Cannot read anything\nTerminate execution\n");
 		exit(1);
 	}
-	//TODO Do not trust the file - Do your function! - Atoi is NOT suggested
 	lines = atoi (temp_line);
 	if (lines < 1 ){
 		printf("Error converting line\nTerminate execution\n");
