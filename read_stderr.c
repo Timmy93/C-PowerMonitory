@@ -68,10 +68,11 @@ int is_a_plug (char *);
 int count_lines_stdout (char *);
 FILE *open_file (char *);
 void to_lowercase (char *);
-char *purgeInfo (char info[]);
-int split (char *str, char delimiter, char ***tokens);
-char *str_replace (char *orig, char *rep, char *with) ;
-int startsWith (char *pre, char *str);
+char *purgeInfo (char *);
+int split (char *, char , char ***);
+void free_tokens (char ***, int );
+char *str_replace (char *, char *, char *) ;
+int startsWith (char *, char *);
 
 int main(int argc, char *argv[]){
 	int lines_stdout = 0;
@@ -84,13 +85,16 @@ int main(int argc, char *argv[]){
 	char *string_stdout = NULL;
 
 	//Create the initial structure reading from stderr (PATH_STDERR)
+	printf("START\tStructure creation\n");
 	create_initial_structure(PATH_STDERR, &start_house);
+	printf("END\tStructure creation\n");
+	//TODO Sometimes I don't reach this point
 
 	//Count lines of stdout reading from LINES_STDOUT
+	printf("START\tCounting stdout lines\n");
 	lines_stdout = count_lines_stdout(LINES_STDOUT);
-	printf("Stdout has: %d lines\n", lines_stdout);
+	printf("END\tCounting stdout lines\tTotal lines: %d", lines_stdout);
 
-	//TODO I fill the memory doing this - Somewhere I don't free memory
 	//Read from stdout
 	last_house = start_house;
 	last_household = start_house->h_households;
@@ -98,10 +102,13 @@ int main(int argc, char *argv[]){
 	my_stdout = open_file(PATH_STDOUT);
 	while (getline(&string_stdout, &len, my_stdout) != -1) {
 		elaborate_stdout(start_house, &last_house, &last_household, &last_plug, string_stdout);
+		free(string_stdout);
+		string_stdout = NULL;
 	}
+	sleep(10);
 	printf("Finished to elaborate stdout\n");
 
-	free(string_stdout);
+
 
 	return 0;
 }
@@ -146,6 +153,8 @@ void elaborate_stdout(House *start_h, House **last_h, Household **last_hh, Plug 
 	//Update data
 	insert_data(*last_p, timestamp, value);
 
+	//Free memory
+	free_tokens(&token, num_token_stdout);
 }
 
 void reach_house(House *start_h, House **last_h, Household **last_hh, Plug **last_p, int id){
@@ -226,10 +235,11 @@ void create_initial_structure(char *stderr_filepath, House **start_house){
 	stream_stderr = open_file(stderr_filepath);
 	while (getline(&string_stderr, &len, stream_stderr) != -1) {
 		elaborate_stderr(start_house, &last_house, &last_household, &last_plug, string_stderr);
+		free(string_stderr);
+		string_stderr = NULL;
 	}
 	printf("Finished to create the world\n");
 
-	free(string_stderr);
 }
 
 /*
@@ -256,7 +266,7 @@ void elaborate_stderr(House **start_h, House **last_h, Household **last_hh, Plug
 			exit(0);
 		}
 	}
-	printf("Finished to create an house\n");
+//	printf("Finished to create an house\n");
 }
 
 // Inserts a house inside the initial structure
@@ -433,7 +443,9 @@ char *remove_substring(char *full_string, char * to_remove){
 		if(full_string[i+j] != ' ' && full_string[i+j] != '\n')
 		extracted_id[i] = full_string[i+j];
 	}
-	return extracted_id;
+	strcpy(full_string, extracted_id);
+	free(extracted_id);
+	return full_string;
 }
 
 int is_a_house(char *my_string){
@@ -582,6 +594,14 @@ int split (char *str, char delimiter, char ***tokens){
 	}
 
 	return count;
+}
+
+void free_tokens (char ***token, int num_token_stdout){
+	int i = 0;
+	for (i=0; i<num_token_stdout; i++){
+		free((*token)[i]);
+	}
+	free(*token);
 }
 
 /*
