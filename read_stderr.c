@@ -8,6 +8,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <ctype.h>
+#include <time.h>
 
 #define PATH_STDERR "/home/timmy/Scrivania/stderr-dataGenerator.txt"
 #define PATH_STDOUT "/home/timmy/Scrivania/stdout-dataGenerator.txt"
@@ -254,20 +255,31 @@ void insert_data(Plug *last_p, long timestamp, int value_measurement){
 	last_p->last_measurement = new_measurement;
 }
 
-//TODO Extraxt data from timestamp
+/*
+ * Extract the date and the hour form the timestamp
+ * timestamp	->	The time as a long
+ * date			->	Pointer to the variable to fill with the right hourdate
+ * hour			->	Pointer to the variable to fill with the right hour
+ */
 void find_date(long timestamp, int *date, int *hour){
-	printf("Start\n");
+	int num_token = 0;
 	char buf[20];
+	char **tokens = NULL;
 	struct tm *timeinfo;
-
-	/* Conversion to time_t as localtime() expects a time_t* */
-	time_t epoch_time_as_time_t = timestamp;
-	/* Call to localtime() now operates on time_t */
-	timeinfo = localtime (&epoch_time_as_time_t);
-
+	time_t time = timestamp;
+	timeinfo = localtime (&time);
 	strftime (buf, sizeof(buf), "%Y%m%d,%H", timeinfo);
 
-	printf("Test: %s\n", buf);
+	num_token = split (buf, ',', &tokens);
+	if(num_token != 2){
+		printf("Error in the split of %s\n", buf);
+	}
+
+	*date = atoi(tokens[0]);
+	*hour = atoi(tokens[1]);
+
+//	printf("date: %d\thour: %d\n", *date, *hour);
+	free_tokens(&tokens, num_token);
 }
 
 
