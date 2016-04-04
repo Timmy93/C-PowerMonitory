@@ -48,6 +48,9 @@ struct house{
 };
 typedef struct house House;
 
+void create_initial_structure(FILE *, House **);
+void elaborate_stderr(House **, House **, Household **, Plug **, char *);
+void elaborate_stdout(House *, char *);
 void insert_house (House **, House **, char *);
 void insert_household (House *, Household **, char *);
 void insert_plug (Household *, Plug **, char *);
@@ -66,21 +69,12 @@ char *str_replace(char *orig, char *rep, char *with) ;
 int startsWith(char *pre, char *str);
 
 int main(int argc, char *argv[]){
-	int i = 0, num_token_stdout = 0, num_token_stderr = 0, lines_stdout = 0;
+	int lines_stdout = 0;
 	FILE *stream_stderr = NULL;
 	FILE *my_stdout = NULL;
-	size_t len;
 	House *start_house = NULL;
-	House *last_appended_house = NULL;
-	Household *last_appended_household = NULL;
-	Plug *last_appended_plug = NULL;
-	char **tokens_stdout = NULL;
-	char **tokens_stderr = NULL;
-//	char *string_stdout = "11,1459365287,0,1,4,68";
-//	char *string_stderr = "house 0 {household 0 {plug 0, plug 1, plug 2, plug 3, plug 4, plug 5, plug 6, }, household 1 {plug 0, plug 1, plug 2, plug 3, plug 4, plug 5, plug 6, plug 7, plug 8, }, household 2 {plug 0, plug 1, plug 2, plug 3, plug 4, }, household 3 {plug 0, plug 1, plug 2, plug 3, plug 4, plug 5, plug 6, plug 7, plug 8, }, household 4 {plug 0, plug 1, plug 2, plug 3, plug 4, plug 5, plug 6, plug 7, }, household 5 {plug 0, plug 1, plug 2, plug 3, plug 4, plug 5, plug 6, plug 7, plug 8, }, }";
+	size_t len;
 	char *string_stdout = NULL;
-	char *string_stderr = NULL;
-	char *purged_string;
 
 	//Read from stderr
 	printf("Read from stderr - START\n");
@@ -90,26 +84,8 @@ int main(int argc, char *argv[]){
 		exit(0);
 	}
 
-	while (getline(&string_stderr, &len, stream_stderr) != -1) {
-		//Now I purge and tokenize what I've read
-		purged_string = purgeInfo (string_stderr);
-		num_token_stderr = split (purged_string, ',', &tokens_stderr);
-
-		for(i = 0; i<num_token_stderr; i++){
-			if (is_a_house (tokens_stderr[i] ) ){
-				insert_house(&start_house, &last_appended_house, tokens_stderr[i]);
-			} else if (is_a_household (tokens_stderr[i] ) ){
-				insert_household(last_appended_house, &last_appended_household, tokens_stderr[i]);
-			} else if (is_a_plug (tokens_stderr[i] ) ){
-				insert_plug(last_appended_household, &last_appended_plug, tokens_stderr[i]);
-			} else {
-				printf("Cannot recognize this string:\n[%s]\n", tokens_stderr[i]);
-				exit(0);
-			}
-		}
-		printf("Finished to create an house\n");
-	}
-	printf("Finished to create the world\n");
+	//Now I'll create the initial structure reading from stderr
+	create_initial_structure(stream_stderr, &start_house);
 
 	//Count lines stdout
 	lines_stdout = count_lines_stdout (LINES_STDOUT);
@@ -122,32 +98,83 @@ int main(int argc, char *argv[]){
 		exit(0);
 	}
 	while (getline(&string_stdout, &len, my_stdout) != -1) {
-		printf("%s", string_stdout);
+		//TODO manage this string elaborate sadf
+		elaborate_stdout(start_house, string_stdout);
+//		printf("%s\n", string_stdout);
 	}
+	printf("Finished to elaborate stdout\n");
 
-	//Clear the string received from stderr
-	purged_string = purgeInfo (string_stderr);
-	num_token_stderr = split (purged_string, ',', &tokens_stderr);
-	for (i = 0; i < num_token_stderr; i++){
-		if (startsWith ("household ", tokens_stderr[i] ) ){
-			printf("token #%d: %s\n", i, tokens_stderr[i]);
-		} else {
-			printf("Not an household\n");
-		}
-
-	}
-
-	//Extract data as received from stdout
-	num_token_stdout = split(string_stdout, ',', &tokens_stdout);
-	for (i = 0; i < num_token_stdout; i++){
-		printf("token #%d: %s\n", i, tokens_stdout[i]);
-	}
-
-	//Clearung unused memory
-	free(string_stderr);
 	free(string_stdout);
 
 	return 0;
+}
+
+/*
+ * Creates the initial structure. This structure will be used to save data read by stdout.
+ *
+ * stream_stderr	->	Where to read data to build up the structure
+ * start_house		->	Inside will be saved the reference to the first House.
+ *
+ */
+void create_initial_structure(FILE *stream_stderr, House **start_house){
+	House *last_appended_house = NULL;
+	Household *last_appended_household = NULL;
+	Plug *last_appended_plug = NULL;
+	char *string_stderr = NULL;
+	size_t len;
+
+	while (getline(&string_stderr, &len, stream_stderr) != -1) {
+		elaborate_stderr(start_house, &last_appended_house, &last_appended_household, &last_appended_plug, string_stderr);
+	}
+	printf("Finished to create the world\n");
+
+	free(string_stderr);
+}
+
+/*
+ * Recognize the string and updates the structure
+ */
+void elaborate_stderr(House **start_h, House **last_h, Household **last_hh, Plug **last_p, char *my_string){
+	int i;
+	char **tokens_stderr = NULL;
+	char *purged_string = NULL;
+	int num_token_stderr = 0;
+
+	//Now I purge and tokenize what I've read
+	purged_string = purgeInfo (my_string);
+	num_token_stderr = split (purged_string, ',', &tokens_stderr);
+	for(i = 0; i<num_token_stderr; i++){
+		if (is_a_house (tokens_stderr[i] ) ){
+			insert_house(start_h, last_h, tokens_stderr[i]);
+		} else if (is_a_household (tokens_stderr[i] ) ){
+			insert_household(*last_h, last_hh, tokens_stderr[i]);
+		} else if (is_a_plug (tokens_stderr[i] ) ){
+			insert_plug(*last_hh, last_p, tokens_stderr[i]);
+		} else {
+			printf("Cannot recognize this string:\n[%s]\n", tokens_stderr[i]);
+			exit(0);
+		}
+	}
+	printf("Finished to create an house\n");
+}
+
+/*
+ * Recognize the string read from stdout and update the structure
+ */
+void elaborate_stdout(House *start_house, char *my_string){
+	//NO - useless the following 3 values - TO DELETE
+	House *last_house = start_house;
+	Household *last_household = start_house->h_households;
+	Plug *last_plug = start_house->h_households->hh_plugs;
+	char **tokens_stdout = NULL;
+	int num_token_stdout = 0;
+	char *purged_string = NULL;
+
+	//Split the string - No need to be cleared
+	num_token_stdout = split (my_string, ',', &tokens_stdout);
+
+	//Do something
+
 }
 
 //TODO Remember to free memory allocated by the array of tokens.
