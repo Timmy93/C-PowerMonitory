@@ -26,8 +26,8 @@ typedef struct measurement Measurement;
 //Definition of plug
 struct plug{
 	int id;
-	int valore;
 	Measurement *my_measurements;
+	Measurement *last_measurement;
 	struct plug *next;
 };
 typedef struct plug Plug;
@@ -53,6 +53,7 @@ void reach_house(House *, House **, Household **, Plug **, int);
 void reach_household(Household **, Plug **, int);
 void reach_plug(Plug **, int);
 void insert_data(Plug *, long, int);
+void find_date(long , int *, int *);
 void create_initial_structure(char *, House **);
 void elaborate_stderr(House **, House **, Household **, Plug **, char *);
 void insert_house (House **, House **, char *);
@@ -74,8 +75,10 @@ void free_tokens (char ***, int );
 char *str_replace (char *, char *, char *) ;
 int startsWith (char *, char *);
 
+//TODO Insert execution time
 int main(int argc, char *argv[]){
-	int lines_stdout = 0;
+	double percentage = 0;
+	double lines_stdout = 0;
 	FILE *my_stdout = NULL;
 	House *start_house = NULL;
 	House *last_house = NULL;
@@ -93,22 +96,24 @@ int main(int argc, char *argv[]){
 	//Count lines of stdout reading from LINES_STDOUT
 	printf("START\tCounting stdout lines\n");
 	lines_stdout = count_lines_stdout(LINES_STDOUT);
-	printf("END\tCounting stdout lines\tTotal lines: %d", lines_stdout);
+	printf("END\tCounting stdout lines\tTotal lines: %.0f\n", lines_stdout);
 
 	//Read from stdout
 	last_house = start_house;
 	last_household = start_house->h_households;
 	last_plug = start_house->h_households->hh_plugs;
-	my_stdout = open_file(PATH_STDOUT);
+	my_stdout = open_file (PATH_STDOUT);
 	while (getline(&string_stdout, &len, my_stdout) != -1) {
+		percentage+=1;
 		elaborate_stdout(start_house, &last_house, &last_household, &last_plug, string_stdout);
 		free(string_stdout);
 		string_stdout = NULL;
+		if(((int)percentage)%100000 == 0){
+			printf("Execution at:\t%.2f%%\n", (percentage/lines_stdout)*100);
+		}
 	}
-	sleep(10);
+//	sleep(10);
 	printf("Finished to elaborate stdout\n");
-
-
 
 	return 0;
 }
@@ -167,7 +172,7 @@ void reach_house(House *start_h, House **last_h, Household **last_hh, Plug **las
 		*last_hh = (*last_h)->h_households;
 		*last_p = (*last_h)->h_households->hh_plugs;
 		reach_house(start_h, last_h, last_hh, last_p, id);
-		printf("Updated House\n");
+//		printf("Updated House\n");
 		return;
 	} else {
 		//New set of measurements - restart from House 0
@@ -187,7 +192,7 @@ void reach_household(Household **last_hh, Plug **last_p, int id){
 		*last_hh = (*last_hh)->next;
 		*last_p = (*last_hh)->hh_plugs;
 		reach_household(last_hh, last_p, id);
-		printf("Updated Household\n");
+//		printf("Updated Household\n");
 		return;
 	} else {
 		printf("Something went wrong: household_id: %d\nTerminate\n", id);
@@ -203,7 +208,7 @@ void reach_plug(Plug **last_p, int id){
 		//We go to the next plug
 		*last_p = (*last_p)->next;
 		reach_plug(last_p, id);
-		printf("Updated Plug\n");
+//		printf("Updated Plug\n");
 		return;
 	} else {
 		printf("Something went wrong: plug_id: %d\nTerminate\n", id);
@@ -211,10 +216,60 @@ void reach_plug(Plug **last_p, int id){
 	}
 }
 
-//TODO Write how to update data
-void insert_data(Plug *last_p, long timestamp, int value_measurement){
 
+void insert_data(Plug *last_p, long timestamp, int value_measurement){
+	int date = 0;
+	int hour = 0;
+	find_date(timestamp, &date, &hour);
+	if(hour < 0 || hour > 23){
+		printf("Something wrong - Hour is: %d\n Terminate execution\n", hour);
+		exit(1);
+	}
+
+	//Check if it has any measurement
+	if(last_p->last_measurement != NULL){
+		//Check if the last measurement has the same date of this
+		if(last_p->last_measurement->date == date){
+			last_p->last_measurement->hour[hour] += value_measurement;
+			return;
+		}
+	}
+
+	//If I reach this point I've to add a new measurement
+	Measurement *new_measurement = (Measurement *) malloc (sizeof (Measurement));
+	if(new_measurement == NULL){
+		printf("Not enough memory to complete the computation\nTerminate execution\n");
+		exit(1);
+	}
+	new_measurement->date = date;
+	new_measurement->hour[hour] += value_measurement;
+	new_measurement->next = NULL;
+
+	//Properly append the structure I have created
+	if(last_p->last_measurement != NULL){
+		last_p->last_measurement->next = new_measurement;
+	} else {
+		last_p->my_measurements = new_measurement;
+	}
+	last_p->last_measurement = new_measurement;
 }
+
+//TODO Extraxt data from timestamp
+void find_date(long timestamp, int *date, int *hour){
+	printf("Start\n");
+	char buf[20];
+	struct tm *timeinfo;
+
+	/* Conversion to time_t as localtime() expects a time_t* */
+	time_t epoch_time_as_time_t = timestamp;
+	/* Call to localtime() now operates on time_t */
+	timeinfo = localtime (&epoch_time_as_time_t);
+
+	strftime (buf, sizeof(buf), "%Y%m%d,%H", timeinfo);
+
+	printf("Test: %s\n", buf);
+}
+
 
 /*
  * Creates the initial structure. This structure will be used to save data read by stdout.
@@ -375,8 +430,8 @@ void insert_plug(Household *my_household, Plug **last_appended_plug, char *strin
 	//Initialization
 	p->id = id;
 	p->next = NULL;
-	//TODO maybe to be removed and insert the structure measutements
-	p->valore = 0;
+	p->my_measurements = NULL;
+	p->last_measurement = NULL;
 
 	//Updating references
 	if (my_household->hh_plugs == NULL ){
@@ -596,6 +651,9 @@ int split (char *str, char delimiter, char ***tokens){
 	return count;
 }
 
+/*
+ * This function frees properly the memory used by function split
+ */
 void free_tokens (char ***token, int num_token_stdout){
 	int i = 0;
 	for (i=0; i<num_token_stdout; i++){
