@@ -48,9 +48,13 @@ struct house{
 };
 typedef struct house House;
 
-void create_initial_structure(FILE *, House **);
+void elaborate_stdout(House *, House **, Household **, Plug **, char *);
+void reach_house(House **, char *);
+void reach_houshold(Household **, char *);
+void reach_plug(Plug **, char *);
+void insert_data(Plug *, char *, char *);
+void create_initial_structure(char *, House **);
 void elaborate_stderr(House **, House **, Household **, Plug **, char *);
-void elaborate_stdout(House *, char *);
 void insert_house (House **, House **, char *);
 void insert_household (House *, Household **, char *);
 void insert_plug (Household *, Plug **, char *);
@@ -62,45 +66,34 @@ int is_a_house (char *);
 int is_a_household (char *);
 int is_a_plug (char *);
 int count_lines_stdout (char *);
+FILE *open_file (char *);
 void to_lowercase (char *);
 char *purgeInfo (char info[]);
 int split (char *str, char delimiter, char ***tokens);
-char *str_replace(char *orig, char *rep, char *with) ;
-int startsWith(char *pre, char *str);
+char *str_replace (char *orig, char *rep, char *with) ;
+int startsWith (char *pre, char *str);
 
 int main(int argc, char *argv[]){
 	int lines_stdout = 0;
-	FILE *stream_stderr = NULL;
 	FILE *my_stdout = NULL;
 	House *start_house = NULL;
+	House *last_house = NULL;
+	Household *last_household = NULL;
+	Plug *last_plug = NULL;
 	size_t len;
 	char *string_stdout = NULL;
 
-	//Read from stderr
-	printf("Read from stderr - START\n");
-	stream_stderr = fopen (PATH_STDERR, "r");
-	if (stream_stderr == NULL ){
-		printf("Cannot read from: [%s]\nTerminate execution\n", PATH_STDERR);
-		exit(0);
-	}
+	//Create the initial structure reading from stderr (PATH_STDERR)
+	create_initial_structure(PATH_STDERR, &start_house);
 
-	//Now I'll create the initial structure reading from stderr
-	create_initial_structure(stream_stderr, &start_house);
-
-	//Count lines stdout
-	lines_stdout = count_lines_stdout (LINES_STDOUT);
+	//Count lines of stdout reading from LINES_STDOUT
+	lines_stdout = count_lines_stdout(LINES_STDOUT);
 	printf("Stdout has: %d lines\n", lines_stdout);
 
 	//Read from stdout
-	my_stdout = fopen (PATH_STDOUT, "r");
-	if (my_stdout == NULL ){
-		printf("Cannot read from: [%s]\nTerminate execution", PATH_STDOUT);
-		exit(0);
-	}
+	my_stdout = open_file(PATH_STDOUT);
 	while (getline(&string_stdout, &len, my_stdout) != -1) {
-		//TODO manage this string elaborate sadf
-		elaborate_stdout(start_house, string_stdout);
-//		printf("%s\n", string_stdout);
+		elaborate_stdout(start_house, &last_house, &last_household, &last_plug, string_stdout);
 	}
 	printf("Finished to elaborate stdout\n");
 
@@ -110,21 +103,77 @@ int main(int argc, char *argv[]){
 }
 
 /*
+ * Recognize the string read from stdout and update the structure
+ */
+void elaborate_stdout(House *start_h, House **last_h, Household **last_hh, Plug **last_p, char *my_string){
+	char **token = NULL;
+	int num_token_stdout = 0;
+
+	//Split the string - No need to be cleared
+	num_token_stdout = split (my_string, ',', &token);
+	if(num_token_stdout != 6){
+		printf("Error splitting data in this line: [%s]\nTerminate execution\n", my_string);
+		exit(1);
+	}
+
+	/*
+	 * Description of structure:
+	 * token[0]	->	id_measurement
+	 * token[1]	->	timestamp measurement
+	 * token[2]	->	house id
+	 * token[3]	->	household id
+	 * token[4]	->	plug id
+	 * token[5]	->	value of measurement
+	 */
+	//Update references before update data
+	reach_house(last_h, token[2]);
+	reach_houshold(last_hh, token[3]);
+	reach_plug(last_p, token[4]);
+
+	//Update data
+	insert_data(*last_p, token[1], token[5]);
+
+}
+
+//TODO
+void reach_house(House **last_h, char *id_house){
+	;
+}
+
+//TODO
+void reach_houshold(Household **last_hh, char *id_household){
+	;
+}
+
+//TODO
+void reach_plug(Plug **last_p, char *id_plug){
+	;
+}
+
+//TODO Write how to update data
+void insert_data(Plug *last_p, char *timestamp, char *value_measurement){
+
+}
+
+/*
  * Creates the initial structure. This structure will be used to save data read by stdout.
  *
  * stream_stderr	->	Where to read data to build up the structure
  * start_house		->	Inside will be saved the reference to the first House.
  *
  */
-void create_initial_structure(FILE *stream_stderr, House **start_house){
-	House *last_appended_house = NULL;
-	Household *last_appended_household = NULL;
-	Plug *last_appended_plug = NULL;
+void create_initial_structure(char *stderr_filepath, House **start_house){
+	FILE *stream_stderr = NULL;
+	House *last_house = NULL;
+	Household *last_household = NULL;
+	Plug *last_plug = NULL;
 	char *string_stderr = NULL;
 	size_t len;
 
+	//Open stderr
+	stream_stderr = open_file(stderr_filepath);
 	while (getline(&string_stderr, &len, stream_stderr) != -1) {
-		elaborate_stderr(start_house, &last_appended_house, &last_appended_household, &last_appended_plug, string_stderr);
+		elaborate_stderr(start_house, &last_house, &last_household, &last_plug, string_stderr);
 	}
 	printf("Finished to create the world\n");
 
@@ -158,27 +207,7 @@ void elaborate_stderr(House **start_h, House **last_h, Household **last_hh, Plug
 	printf("Finished to create an house\n");
 }
 
-/*
- * Recognize the string read from stdout and update the structure
- */
-void elaborate_stdout(House *start_house, char *my_string){
-	//NO - useless the following 3 values - TO DELETE
-	House *last_house = start_house;
-	Household *last_household = start_house->h_households;
-	Plug *last_plug = start_house->h_households->hh_plugs;
-	char **tokens_stdout = NULL;
-	int num_token_stdout = 0;
-	char *purged_string = NULL;
-
-	//Split the string - No need to be cleared
-	num_token_stdout = split (my_string, ',', &tokens_stdout);
-
-	//Do something
-
-}
-
-//TODO Remember to free memory allocated by the array of tokens.
-
+// Inserts a house inside the initial structure
 void insert_house(House **start_house, House **last_appended, char *string_id){
 	//Declaration and allocation
 	House *h;
@@ -215,6 +244,7 @@ void insert_house(House **start_house, House **last_appended, char *string_id){
 	*last_appended = h;
 }
 
+// Inserts a household inside the initial structure
 void insert_household(House *my_house, Household **last_appended_household, char *string_id){
 	//Declaration and allocation
 	Household *hh;
@@ -256,6 +286,7 @@ void insert_household(House *my_house, Household **last_appended_household, char
 	*last_appended_household = hh;
 }
 
+// Inserts a plug inside the initial structure
 void insert_plug(Household *my_household, Plug **last_appended_plug, char *string_id){
 	//Declaration and allocation
 	Plug *p;
@@ -373,17 +404,13 @@ int is_a_plug(char *my_string){
  * Count lines of stdout
  */
 int count_lines_stdout (char *file ){
-	FILE *file_stdout = NULL;
+	FILE *file_lines_stdout = NULL;
 	int lines = 0, temp = 0;
 	char *temp_line;
 	size_t temp2;
 
-	file_stdout = fopen(file, "r");
-	if (file_stdout == NULL ){
-		printf("Cannot find lines file\nTerminate execution\n");
-		exit(1);
-	}
-	temp = getline (&temp_line, &temp2, file_stdout);
+	file_lines_stdout = open_file(file);
+	temp = getline (&temp_line, &temp2, file_lines_stdout);
 	if (temp == -1 ){
 		printf("Cannot read anything\nTerminate execution\n");
 		exit(1);
@@ -397,7 +424,19 @@ int count_lines_stdout (char *file ){
 	return lines;
 }
 
-//TODO Solve the warning
+/*
+ * Gives the reference to the opened file.
+ */
+FILE *open_file(char *my_filepath){
+	FILE *stream_stderr = NULL;
+	stream_stderr = fopen (my_filepath, "r");
+	if (stream_stderr == NULL ){
+		printf("Cannot read from: [%s]\nTerminate execution\n", my_filepath);
+		exit(0);
+	}
+	return stream_stderr;
+}
+
 void to_lowercase(char *my_string){
 	int i;
 	char x;
