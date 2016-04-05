@@ -87,7 +87,9 @@ int main(int argc, char *argv[]){
 	Plug *last_plug = NULL;
 	size_t len;
 	char *string_stdout = NULL;
+	clock_t t_start, t_end;
 
+	t_start = clock();
 	//Create the initial structure reading from stderr (PATH_STDERR)
 	printf("START\tStructure creation\n");
 	create_initial_structure(PATH_STDERR, &start_house);
@@ -115,6 +117,8 @@ int main(int argc, char *argv[]){
 	}
 //	sleep(10);
 	printf("Finished to elaborate stdout\n");
+	t_end = clock();
+	printf("Elapsed time: %ld ms", (1000 * (t_end - t_start) / (CLOCKS_PER_SEC)));
 
 	return 0;
 }
@@ -267,12 +271,18 @@ void find_date(long timestamp, int *date, int *hour){
 	char **tokens = NULL;
 	struct tm *timeinfo;
 	time_t time = timestamp;
+
 	timeinfo = localtime (&time);
+	if( timeinfo == NULL ){
+		printf("Cannot convert to struct tm: %ld\nTerminate execution\n", timestamp);
+		exit(1);
+	}
 	strftime (buf, sizeof(buf), "%Y%m%d,%H", timeinfo);
 
 	num_token = split (buf, ',', &tokens);
 	if(num_token != 2){
-		printf("Error in the split of %s\n", buf);
+		printf("Error in the split of %s\nTerminate execution\n", buf);
+		exit(1);
 	}
 
 	*date = atoi(tokens[0]);
