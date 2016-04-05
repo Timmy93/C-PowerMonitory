@@ -64,6 +64,7 @@ void print_houses (House *);
 void print_house (House *);
 void print_household(Household *);
 void print_plug(Plug *);
+void print_measurement(Measurement *my_mes);
 int extract_id (char *, char*);
 char *remove_substring(char *, char * );
 int is_a_house (char *);
@@ -122,7 +123,7 @@ int main(int argc, char *argv[]){
 	t_end = clock();
 	printf("Elapsed time: %ld ms", (1000 * (t_end - t_start) / (CLOCKS_PER_SEC)));
 
-	print_houses(start_house);
+//	print_houses(start_house);
 	return 0;
 }
 
@@ -511,7 +512,24 @@ void print_household(Household *my_household){
 }
 
 void print_plug(Plug *my_plug){
-	printf("\tPlug %d: %d", my_plug->id, my_plug->last_measurement->hour[20]);
+	printf("\n\t\tPlug id: %d", my_plug->id);
+	Measurement *temp = my_plug->my_measurements;
+	while (temp != NULL){
+		print_measurement(temp);
+		temp = temp->next;
+	}
+}
+
+void print_measurement(Measurement *my_mes){
+	Measurement * next = my_mes->next;
+	int i = 0;
+	printf("\n\t\tDate: %d\n\t\t", my_mes->date);
+	for(i = 0; i<24; i++){
+		printf("H%d: %d\t", i, my_mes->hour[i]);
+	}
+	if(next != NULL){
+		print_measurement (next);
+	}
 }
 
 /*
