@@ -62,6 +62,8 @@ void insert_household (House *, Household **, char *);
 void insert_plug (Household *, Plug **, char *);
 void print_houses (House *);
 void print_house (House *);
+void print_household(Household *);
+void print_plug(Plug *);
 int extract_id (char *, char*);
 char *remove_substring(char *, char * );
 int is_a_house (char *);
@@ -120,6 +122,7 @@ int main(int argc, char *argv[]){
 	t_end = clock();
 	printf("Elapsed time: %ld ms", (1000 * (t_end - t_start) / (CLOCKS_PER_SEC)));
 
+	print_houses(start_house);
 	return 0;
 }
 
@@ -221,10 +224,12 @@ void reach_plug(Plug **last_p, int id){
 	}
 }
 
-
 void insert_data(Plug *last_p, long timestamp, int value_measurement){
 	int date = 0;
 	int hour = 0;
+	int i = 0;
+	Measurement *new_measurement;
+
 	find_date(timestamp, &date, &hour);
 	if(hour < 0 || hour > 23){
 		printf("Something wrong - Hour is: %d\n Terminate execution\n", hour);
@@ -241,11 +246,16 @@ void insert_data(Plug *last_p, long timestamp, int value_measurement){
 	}
 
 	//If I reach this point I've to add a new measurement
-	Measurement *new_measurement = (Measurement *) malloc (sizeof (Measurement));
+	new_measurement = (Measurement *) malloc (sizeof (Measurement));
 	if(new_measurement == NULL){
 		printf("Not enough memory to complete the computation\nTerminate execution\n");
 		exit(1);
 	}
+	//Inizialize values
+	for(i = 0; i < 24; i++){
+		new_measurement->hour[i] = 0;;
+	}
+	//Insert read value
 	new_measurement->date = date;
 	new_measurement->hour[hour] += value_measurement;
 	new_measurement->next = NULL;
@@ -483,7 +493,25 @@ void print_houses(House *start_house){
  * Prints just the passed house.
  */
 void print_house(House *my_house){
-	printf("House id: %d\n", my_house->id);
+	printf("\nHouse id: %d", my_house->id);
+	Household *temp = my_house->h_households;
+	while (temp != NULL){
+		print_household(temp);
+		temp = temp->next;
+	}
+}
+
+void print_household(Household *my_household){
+	printf("\n\tHousehold id: %d\n\t", my_household->id);
+	Plug *temp = my_household->hh_plugs;
+	while (temp != NULL){
+		print_plug(temp);
+		temp = temp->next;
+	}
+}
+
+void print_plug(Plug *my_plug){
+	printf("\tPlug %d: %d", my_plug->id, my_plug->last_measurement->hour[20]);
 }
 
 /*
