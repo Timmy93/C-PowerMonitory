@@ -45,6 +45,7 @@ typedef struct household Household;
 struct house{
 	int id;
 	Household *h_households;
+	int num_plug;
 	struct house *next;
 };
 typedef struct house House;
@@ -59,7 +60,7 @@ void create_initial_structure(char *, House **);
 void elaborate_stderr(House **, House **, Household **, Plug **, char *);
 void insert_house (House **, House **, char *);
 void insert_household (House *, Household **, char *);
-void insert_plug (Household *, Plug **, char *);
+void insert_plug (House *,Household *, Plug **, char *);
 void print_houses (House *);
 void print_house (House *);
 void print_household(Household *);
@@ -348,7 +349,7 @@ void elaborate_stderr(House **start_h, House **last_h, Household **last_hh, Plug
 		} else if (is_a_household (tokens_stderr[i] ) ){
 			insert_household(*last_h, last_hh, tokens_stderr[i]);
 		} else if (is_a_plug (tokens_stderr[i] ) ){
-			insert_plug(*last_hh, last_p, tokens_stderr[i]);
+			insert_plug(*last_h, *last_hh, last_p, tokens_stderr[i]);
 		} else {
 			printf("Cannot recognize this string:\n[%s]\n", tokens_stderr[i]);
 			exit(0);
@@ -380,6 +381,7 @@ void insert_house(House **start_house, House **last_appended, char *string_id){
 	//Initialization
 	h->id = id;
 	h->h_households = NULL;
+	h->num_plug = 0;
 	h->next = NULL;
 
 	//Appending to the end of the list
@@ -437,7 +439,7 @@ void insert_household(House *my_house, Household **last_appended_household, char
 }
 
 // Inserts a plug inside the initial structure
-void insert_plug(Household *my_household, Plug **last_appended_plug, char *string_id){
+void insert_plug(House *my_house, Household *my_household, Plug **last_appended_plug, char *string_id){
 	//Declaration and allocation
 	Plug *p;
 	p = (Plug *) malloc (sizeof(Plug));
@@ -476,6 +478,9 @@ void insert_plug(Household *my_household, Plug **last_appended_plug, char *strin
 	}
 	//Update the reference to the last Plug
 	*last_appended_plug = p;
+
+	//Update the house count
+	my_house->num_plug += 1;
 }
 
 /*
