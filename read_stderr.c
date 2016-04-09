@@ -52,7 +52,11 @@ struct house {
 };
 typedef struct house House;
 
+//TODO BUG - I assume I'll receive a number equal to BLOCK * num_plug, but sometimes I'll receive less data
+// in fact if I read a big quantity of data (more than 1h) I've no problem with the 1° iteration
+
 int count_plugs(House *);
+int count_houses(House *);
 int read_group_of_lines (char ***, FILE **, int);
 void elaborate_stdout(House *, House **, Household **, Plug **, char *);
 void reach_house(House *, House **, Household **, Plug **, int);
@@ -85,23 +89,28 @@ char *str_replace(char *, char *, char *);
 int startsWith(char *, char *);
 int send_message(char *, int);
 int receive_message(char **, int);
+void send_house(int, House *, char **, int);
+House *find_house(House *, int);
+int find_plug_before(House *, int);
+void receive_house();
 
-//TODO Insert execution time
 int main(int argc, char *argv[]) {
+	int rank, num_processes;
+	int i, j;
 	double percentage = 0;
 	long lines_stdout = 0;
 	long lines_left = 0;
 	long lines_read = 0;
 	int total_num_plugs = 0;
+	int total_num_houses = 0;
 	FILE *my_stdout = NULL;
 	House *start_house = NULL;
 	House *last_house = NULL;
 	Household *last_household = NULL;
 	Plug *last_plug = NULL;
-	size_t len;
-	char *string_stdout = NULL;
 	char **group_lines;
 	clock_t t_start, t_end;
+	
 
 	t_start = clock();
 	//Create the initial structure reading from stderr (PATH_STDERR)
@@ -115,47 +124,60 @@ int main(int argc, char *argv[]) {
 	lines_left = lines_stdout;
 	printf("END\tCounting stdout lines\tTotal lines: %ld\n", lines_stdout);
 
+	total_num_houses = count_houses(start_house);
 	total_num_plugs = count_plugs(start_house);
+	//Getting information for distribuited computing
+	MPI_Init(&argc, &argv);
+	MPI_Comm_size(MPI_COMM_WORLD, &num_processes);
+	MPI_Comm_rank(MPI_COMM_WORLD, &rank);
 	
-	//Now I read a group of lines
-	my_stdout = open_file(PATH_STDOUT);
-	while(lines_left > 0){
-		lines_read = read_group_of_lines (&group_lines, &my_stdout, total_num_plugs*BLOCK);
-		lines_left -= lines_read;
+	//What the master does
+	if(rank == 0){
+		printf("There are %d processes\n", num_processes);
+		my_stdout = open_file(PATH_STDOUT);
+		while(lines_left > 0){
+			lines_read = read_group_of_lines (&group_lines, &my_stdout, total_num_plugs*BLOCK);
+			lines_left -= lines_read;
+			printf("Read %ld lines\n", lines_read);
+			
+			//Complete computation if I'm alone
+			if(num_processes == 1){
+				//If master is the only one running, I execute everything alone
+				last_house = start_house;
+				last_household = start_house->h_households;
+				last_plug = start_house->h_households->hh_plugs;
+				for (i = 0; i < lines_read; i++) {
+					percentage += 1;
+					elaborate_stdout(start_house, &last_house, &last_household, &last_plug,
+						group_lines[i]);
+					if (((int) percentage) % 100000 == 0) {
+						printf("Execution at:\t%.2f%%\n",
+							(percentage / lines_stdout) * 100);
+					}
+				}
+				
+			} else {
+				//Here is what master does if there are slaves
+				for (i = 0; i < total_num_houses; i += num_processes){
+					//Creo 2 thread: 1 computa, l'altro invia
+					for (j=1; j<num_processes; j++){
+						send_house(i+j, start_house, group_lines, j);
+					}
+				}
+			}
 
-		//TODO Compute
-
-		free_tokens(&group_lines, lines_read);
-		printf("Free done\n");
-	}
-
-
-	printf("Terminate successfully execution");
-	t_end = clock();
-	printf("Elapsed time: %ld ms",
-				(1000 * (t_end - t_start) / (CLOCKS_PER_SEC)));
-	return 0;
-	
-	//Read from stdout
-	last_house = start_house;
-	last_household = start_house->h_households;
-	last_plug = start_house->h_households->hh_plugs;
-	while (getline(&string_stdout, &len, my_stdout) != -1) {
-		percentage += 1;
-		elaborate_stdout(start_house, &last_house, &last_household, &last_plug,
-				string_stdout);
-		free(string_stdout);
-		string_stdout = NULL;
-		if (((int) percentage) % 100000 == 0) {
-			printf("Execution at:\t%.2f%%\n",
-					(percentage / lines_stdout) * 100);
+			free_tokens(&group_lines, lines_read);
 		}
+	} else {
+		//That's what the slave does
+		receive_house();
 	}
-//	sleep(10);
-	printf("Finished to elaborate stdout\n");
-
-
-//	print_houses(start_house);
+	
+	t_end = clock();
+	printf("Terminated execution\nElapsed time: %ld ms",
+				(1000 * (t_end - t_start) / (CLOCKS_PER_SEC)));
+	
+//	MPI_Finalize();
 	return 0;
 }
 
@@ -166,12 +188,21 @@ int count_plugs(House *start_house){
 		count += temp->num_plug;
 		temp = temp->next;
 	}
-	printf("Lines: %d\n",count);
+	return count;
+}
+
+int count_houses(House *start_house){
+	int count = 0;
+	House *temp = start_house;
+	while (temp != NULL){
+		count ++;
+		temp = temp->next;
+	}
 	return count;
 }
 
 /*
- *
+ *TODO Write how it works
  */
 int read_group_of_lines (char ***group_to_fill, FILE **my_stdout, int num_of_lines){
 	char *read_line = NULL;
@@ -186,7 +217,7 @@ int read_group_of_lines (char ***group_to_fill, FILE **my_stdout, int num_of_lin
 		len = 0;
 		other_lines = getline(&read_line, &len, *my_stdout);
 		if(other_lines == -1 || read_line == NULL){
-			printf("Exit before saving value #%d\n", i);
+//			printf("Exit before saving value #%d\n", i);
 			break;
 		}
 		(*group_to_fill)[i] = (char *) malloc ((strlen(read_line)+1) * sizeof(char));
@@ -880,34 +911,122 @@ int startsWith(char *pre, char *str) {
 }
 
 int send_message(char *my_message, int dest){
-//	int i;
-//	int len = (int)strlen(my_message);
-//	if (len < 1){
-//		printf("Error\tTerminate Execution\n");
-//		return 0;
-//	}
-//	MPI_Send(&len, 1, MPI_INT, dest, 1, MPI_COMM_WORLD);
-//	for(i=0; i<len; i++){
-//		MPI_Send(&(my_message[i]), 1, MPI_CHAR, dest, 1, MPI_COMM_WORLD);
-//	}
+	int i;
+	int len = (int)strlen(my_message);
+	if (len < 1){
+		printf("Error\tTerminate Execution\n");
+		return 0;
+	}
+	MPI_Send(&len, 1, MPI_INT, dest, 1, MPI_COMM_WORLD);
+	for(i=0; i<len; i++){
+		MPI_Send(&(my_message[i]), 1, MPI_CHAR, dest, 1, MPI_COMM_WORLD);
+	}
+	return 1;
+}
+
+int send_num_message(int num, int dest){
+	MPI_Send(&num, 1, MPI_INT, dest, 1, MPI_COMM_WORLD);
 	return 1;
 }
 
 int receive_message(char **my_message, int source){
-//	MPI_Status stat;
-//	char test = 'q';
-//	int len = -1;
-//	int i;
-//	MPI_Recv(&len, 1, MPI_INT, source, 1, MPI_COMM_WORLD, &stat);
-//	if (len < 1){
-//		printf("Error\tTerminate Execution\n");
-//	return 0;
-//	}
-//	(*my_message) = (char *) malloc (sizeof(char)*(len+1));
-//	for(i=0; i<len; i++){
-//	MPI_Recv(&test, 1, MPI_INT, source, 1, MPI_COMM_WORLD, &stat);
-//		(*my_message)[i] = test;
-//	}
-//	(*my_message)[len] = '\0';
+	MPI_Status stat;
+	char test = 'q';
+	int len = -1;
+	int i;
+	MPI_Recv(&len, 1, MPI_INT, source, 1, MPI_COMM_WORLD, &stat);
+	if (len < 1){
+		printf("Error\tTerminate Execution\n");
+	return 0;
+	}
+	(*my_message) = (char *) malloc (sizeof(char)*(len+1));
+	for(i=0; i<len; i++){
+	MPI_Recv(&test, 1, MPI_INT, source, 1, MPI_COMM_WORLD, &stat);
+		(*my_message)[i] = test;
+	}
+	(*my_message)[len] = '\0';
 	return 1;
+}
+
+int receive_num_message(int *num, int source){
+		MPI_Status stat;
+		char test = 'q';
+		*num = -1;
+		MPI_Recv(num, 1, MPI_INT, source, 1, MPI_COMM_WORLD, &stat);
+		if (*num < 1){
+			printf("Error\tTerminate Execution\n");
+		return 0;
+		}
+	return 1;
+}
+
+//Here I send to the client all the information about his house
+void send_house(int house_id, House *start_house, char **group_lines, int dest){
+	int i, j, line_to_send;
+	int plug_before, total_plug;
+	House *my_house;
+	
+	if (house_id > count_houses(start_house)){
+		//I don't do anything - I have no houses to analyze
+		return;
+	}
+	
+	my_house = find_house(start_house, house_id);
+	plug_before = find_plug_before(start_house, house_id);
+	total_plug = count_plugs(start_house);
+	//Send the information on how many houses will be sent
+	send_num_message(BLOCK*(my_house->num_plug), dest);
+
+	//Cycle to read all timestamps - A number equal to the value of BLOCK
+	for(i = 0; i < BLOCK; i++){
+		//Cycle on all my plugs - Starting from the number of plugs before mine until I don't visit all my plugs. At the end I skip to the next block
+		for(j = 0; j < my_house->num_plug; j++){
+			//plug before is the initial offset
+			line_to_send = plug_before + j + (i * total_plug);
+			send_message(group_lines[line_to_send], dest);
+		}
+	}
+}
+
+House *find_house(House *starting_house, int id){
+	House *my_house = starting_house;
+	while (my_house->id != id){
+		if(my_house->next == NULL){
+			printf("Fatal error\tHouse not found\n");
+			return NULL;
+		}
+		my_house = my_house->next;
+	}
+	return my_house;
+}
+
+int find_plug_before(House *start_house, int house_id){
+	int num = 0;
+	House *my_house = start_house;
+	while (my_house->id != house_id){
+		num += my_house->num_plug;
+		if(my_house->next == NULL){
+			printf("Error\tID: %d not found\n", house_id);
+			return -1;
+		}
+		my_house = my_house->next;
+	}
+	return num;
+}
+
+void receive_house(){
+	//TODO
+	int i, house_to_receive;
+	char *my_string = NULL;
+	receive_num_message(&house_to_receive, 0);
+	printf("I've to receive %d messages\n", house_to_receive);
+	for(i = 0; i < house_to_receive; i++){
+		receive_message(&my_string, 0);
+		//printf("Slave\tString:[%s]\n", my_string);
+		free(my_string);
+		my_string = NULL;
+	}
+
+	printf("Received %d messages\n", i);
+	//TODO free message after having used the string
 }
