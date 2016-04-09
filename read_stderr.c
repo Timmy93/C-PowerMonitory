@@ -88,8 +88,10 @@ void free_tokens(char ***, int);
 char *str_replace(char *, char *, char *);
 int startsWith(char *, char *);
 int send_message(char *, int);
+int send_num_message(int, int);
 int receive_message(char **, int);
-void send_house(int, House *, char **, int);
+int receive_num_message(int *, int);
+void send_house(int, House *, char **, int, int);
 House *find_house(House *, int);
 int find_plug_before(House *, int);
 void receive_house();
@@ -111,29 +113,34 @@ int main(int argc, char *argv[]) {
 	char **group_lines;
 	clock_t t_start, t_end;
 	
-
-	t_start = clock();
-	//Create the initial structure reading from stderr (PATH_STDERR)
-	printf("START\tStructure creation\n");
-	create_initial_structure(PATH_STDERR, &start_house);
-	printf("END\tStructure creation\n");
-
-	//Count lines of stdout reading from LINES_STDOUT
-	printf("START\tCounting stdout lines\n");
-	lines_stdout = count_lines_stdout(LINES_STDOUT);
-	lines_left = lines_stdout;
-	printf("END\tCounting stdout lines\tTotal lines: %ld\n", lines_stdout);
-
-	total_num_houses = count_houses(start_house);
-	total_num_plugs = count_plugs(start_house);
-	//Getting information for distribuited computing
 	MPI_Init(&argc, &argv);
 	MPI_Comm_size(MPI_COMM_WORLD, &num_processes);
 	MPI_Comm_rank(MPI_COMM_WORLD, &rank);
 	
+	t_start = clock();
+
 	//What the master does
 	if(rank == 0){
-		printf("There are %d processes\n", num_processes);
+		//Create the initial structure reading from stderr (PATH_STDERR)
+		printf("START\tStructure creation\n");
+		create_initial_structure(PATH_STDERR, &start_house);
+		printf("END\tStructure creation\n");
+
+		//Count lines of stdout reading from LINES_STDOUT
+		printf("START\tCounting stdout lines\n");
+		lines_stdout = count_lines_stdout(LINES_STDOUT);
+		lines_left = lines_stdout;
+		printf("END\tCounting stdout lines\tTotal lines: %ld\n", lines_stdout);
+
+		total_num_houses = count_houses(start_house);
+		total_num_plugs = count_plugs(start_house);
+
+		//Here send the initial informations
+		for(i = 1; i < num_processes; i++){
+			send_num_message(total_num_houses, i);
+			send_num_message(total_num_plugs ,i);
+		}
+
 		my_stdout = open_file(PATH_STDOUT);
 		while(lines_left > 0){
 			lines_read = read_group_of_lines (&group_lines, &my_stdout, total_num_plugs*BLOCK);
@@ -157,11 +164,11 @@ int main(int argc, char *argv[]) {
 				}
 				
 			} else {
-				//Here is what master does if there are slaves
+				//Here is what MASTER does if there are slaves
 				for (i = 0; i < total_num_houses; i += num_processes){
 					//Creo 2 thread: 1 computa, l'altro invia
 					for (j=1; j<num_processes; j++){
-						send_house(i+j, start_house, group_lines, j);
+						send_house(i+j, start_house, group_lines, j, (lines_read/total_num_plugs));
 					}
 				}
 			}
@@ -169,15 +176,24 @@ int main(int argc, char *argv[]) {
 			free_tokens(&group_lines, lines_read);
 		}
 	} else {
-		//That's what the slave does
-		receive_house();
+		//That's what the SLAVE does
+		//Receive initial information
+		receive_num_message(&total_num_houses, 0);
+		receive_num_message(&total_num_plugs, 0);
+
+		//TODO I compute only a pack of data - no computation if thare are many many data so far
+		for (i = rank; i < total_num_houses; i += num_processes){
+			receive_house();
+			printf("Slave %d\tReceived house: %d\n", rank, i);
+		}
+		printf("Slave %d\tFinished my job, finally free!\n", rank);
 	}
 	
 	t_end = clock();
-	printf("Terminated execution\nElapsed time: %ld ms",
+	printf("Terminated execution\nElapsed time: %ld ms\n",
 				(1000 * (t_end - t_start) / (CLOCKS_PER_SEC)));
 	
-//	MPI_Finalize();
+	MPI_Finalize();
 	return 0;
 }
 
@@ -950,7 +966,6 @@ int receive_message(char **my_message, int source){
 
 int receive_num_message(int *num, int source){
 		MPI_Status stat;
-		char test = 'q';
 		*num = -1;
 		MPI_Recv(num, 1, MPI_INT, source, 1, MPI_COMM_WORLD, &stat);
 		if (*num < 1){
@@ -961,7 +976,7 @@ int receive_num_message(int *num, int source){
 }
 
 //Here I send to the client all the information about his house
-void send_house(int house_id, House *start_house, char **group_lines, int dest){
+void send_house(int house_id, House *start_house, char **group_lines, int dest, int num_ts){
 	int i, j, line_to_send;
 	int plug_before, total_plug;
 	House *my_house;
@@ -975,10 +990,10 @@ void send_house(int house_id, House *start_house, char **group_lines, int dest){
 	plug_before = find_plug_before(start_house, house_id);
 	total_plug = count_plugs(start_house);
 	//Send the information on how many houses will be sent
-	send_num_message(BLOCK*(my_house->num_plug), dest);
+	send_num_message(num_ts*(my_house->num_plug), dest);
 
 	//Cycle to read all timestamps - A number equal to the value of BLOCK
-	for(i = 0; i < BLOCK; i++){
+	for(i = 0; i < num_ts; i++){
 		//Cycle on all my plugs - Starting from the number of plugs before mine until I don't visit all my plugs. At the end I skip to the next block
 		for(j = 0; j < my_house->num_plug; j++){
 			//plug before is the initial offset
@@ -1019,7 +1034,6 @@ void receive_house(){
 	int i, house_to_receive;
 	char *my_string = NULL;
 	receive_num_message(&house_to_receive, 0);
-	printf("I've to receive %d messages\n", house_to_receive);
 	for(i = 0; i < house_to_receive; i++){
 		receive_message(&my_string, 0);
 		//printf("Slave\tString:[%s]\n", my_string);
