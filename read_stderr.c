@@ -17,6 +17,7 @@
 #define HOUSE "house "
 #define HOUSEHOLD "household "
 #define PLUG "plug "
+#define BLOCK 3600
 
 struct measurement {
 	int date;
@@ -51,6 +52,8 @@ struct house {
 };
 typedef struct house House;
 
+int count_plugs(House *);
+int read_group_of_lines (char ***, FILE **, int);
 void elaborate_stdout(House *, House **, Household **, Plug **, char *);
 void reach_house(House *, House **, Household **, Plug **, int);
 void reach_household(Household **, Plug **, int);
@@ -86,7 +89,10 @@ int receive_message(char **, int);
 //TODO Insert execution time
 int main(int argc, char *argv[]) {
 	double percentage = 0;
-	double lines_stdout = 0;
+	long lines_stdout = 0;
+	long lines_left = 0;
+	long lines_read = 0;
+	int total_num_plugs = 0;
 	FILE *my_stdout = NULL;
 	House *start_house = NULL;
 	House *last_house = NULL;
@@ -94,6 +100,7 @@ int main(int argc, char *argv[]) {
 	Plug *last_plug = NULL;
 	size_t len;
 	char *string_stdout = NULL;
+	char **group_lines;
 	clock_t t_start, t_end;
 
 	t_start = clock();
@@ -105,13 +112,34 @@ int main(int argc, char *argv[]) {
 	//Count lines of stdout reading from LINES_STDOUT
 	printf("START\tCounting stdout lines\n");
 	lines_stdout = count_lines_stdout(LINES_STDOUT);
-	printf("END\tCounting stdout lines\tTotal lines: %.0f\n", lines_stdout);
+	lines_left = lines_stdout;
+	printf("END\tCounting stdout lines\tTotal lines: %ld\n", lines_stdout);
 
+	total_num_plugs = count_plugs(start_house);
+	
+	//Now I read a group of lines
+	my_stdout = open_file(PATH_STDOUT);
+	while(lines_left > 0){
+		lines_read = read_group_of_lines (&group_lines, &my_stdout, total_num_plugs*BLOCK);
+		lines_left -= lines_read;
+
+		//TODO Compute
+
+		free_tokens(&group_lines, lines_read);
+		printf("Free done\n");
+	}
+
+
+	printf("Terminate successfully execution");
+	t_end = clock();
+	printf("Elapsed time: %ld ms",
+				(1000 * (t_end - t_start) / (CLOCKS_PER_SEC)));
+	return 0;
+	
 	//Read from stdout
 	last_house = start_house;
 	last_household = start_house->h_households;
 	last_plug = start_house->h_households->hh_plugs;
-	my_stdout = open_file(PATH_STDOUT);
 	while (getline(&string_stdout, &len, my_stdout) != -1) {
 		percentage += 1;
 		elaborate_stdout(start_house, &last_house, &last_household, &last_plug,
@@ -125,12 +153,50 @@ int main(int argc, char *argv[]) {
 	}
 //	sleep(10);
 	printf("Finished to elaborate stdout\n");
-	t_end = clock();
-	printf("Elapsed time: %ld ms",
-			(1000 * (t_end - t_start) / (CLOCKS_PER_SEC)));
+
 
 //	print_houses(start_house);
 	return 0;
+}
+
+int count_plugs(House *start_house){
+	int count = 0;
+	House *temp = start_house;
+	while (temp != NULL){
+		count += temp->num_plug;
+		temp = temp->next;
+	}
+	printf("Lines: %d\n",count);
+	return count;
+}
+
+/*
+ *
+ */
+int read_group_of_lines (char ***group_to_fill, FILE **my_stdout, int num_of_lines){
+	char *read_line = NULL;
+	int other_lines;
+	int temp;
+	size_t len;
+	int i;
+
+	*group_to_fill = (char**) malloc(sizeof(char*) * num_of_lines);
+	for(i = 0; i < num_of_lines; i++){
+		(*group_to_fill)[i] = NULL;
+		len = 0;
+		other_lines = getline(&read_line, &len, *my_stdout);
+		if(other_lines == -1 || read_line == NULL){
+			printf("Exit before saving value #%d\n", i);
+			break;
+		}
+		(*group_to_fill)[i] = (char *) malloc ((strlen(read_line)+1) * sizeof(char));
+		strcpy((*group_to_fill)[i], read_line);
+		free(read_line);
+		read_line = NULL;
+	}
+
+	temp = i;
+	return temp;
 }
 
 /*
@@ -814,34 +880,34 @@ int startsWith(char *pre, char *str) {
 }
 
 int send_message(char *my_message, int dest){
-	int i;
-	int len = (int)strlen(my_message);
-	if (len < 1){
-		printf("Error\tTerminate Execution\n");
-		return 0;
-	}
-	MPI_Send(&len, 1, MPI_INT, dest, 1, MPI_COMM_WORLD);
-	for(i=0; i<len; i++){
-		MPI_Send(&(my_message[i]), 1, MPI_CHAR, dest, 1, MPI_COMM_WORLD);
-	}
+//	int i;
+//	int len = (int)strlen(my_message);
+//	if (len < 1){
+//		printf("Error\tTerminate Execution\n");
+//		return 0;
+//	}
+//	MPI_Send(&len, 1, MPI_INT, dest, 1, MPI_COMM_WORLD);
+//	for(i=0; i<len; i++){
+//		MPI_Send(&(my_message[i]), 1, MPI_CHAR, dest, 1, MPI_COMM_WORLD);
+//	}
 	return 1;
 }
 
 int receive_message(char **my_message, int source){
-	MPI_Status stat;
-	char test = 'q';
-	int len = -1;
-	int i;
-	MPI_Recv(&len, 1, MPI_INT, source, 1, MPI_COMM_WORLD, &stat);
-	if (len < 1){
-		printf("Error\tTerminate Execution\n");
-	return 0;
-	}
-	(*my_message) = (char *) malloc (sizeof(char)*(len+1));
-	for(i=0; i<len; i++){
-	MPI_Recv(&test, 1, MPI_INT, source, 1, MPI_COMM_WORLD, &stat);
-		(*my_message)[i] = test;
-	}
-	(*my_message)[len] = '\0';
+//	MPI_Status stat;
+//	char test = 'q';
+//	int len = -1;
+//	int i;
+//	MPI_Recv(&len, 1, MPI_INT, source, 1, MPI_COMM_WORLD, &stat);
+//	if (len < 1){
+//		printf("Error\tTerminate Execution\n");
+//	return 0;
+//	}
+//	(*my_message) = (char *) malloc (sizeof(char)*(len+1));
+//	for(i=0; i<len; i++){
+//	MPI_Recv(&test, 1, MPI_INT, source, 1, MPI_COMM_WORLD, &stat);
+//		(*my_message)[i] = test;
+//	}
+//	(*my_message)[len] = '\0';
 	return 1;
 }
