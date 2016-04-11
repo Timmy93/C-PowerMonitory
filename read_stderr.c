@@ -1207,7 +1207,7 @@ float calculate_median_load(int *plug_values, int num_ts){
 	float my_val = 0;
 	long sum = 0;
 	int i;
-	for (i = 0; i < num_ts){
+	for (i = 0; i < num_ts; i++){
 		sum += plug_values[i];
 	}
 	my_val = ((float) sum / num_ts);
