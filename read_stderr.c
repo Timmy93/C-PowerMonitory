@@ -9,6 +9,7 @@
 #include <string.h>
 #include <ctype.h>
 #include <time.h>
+#include <omp.h>
 #include "mpi.h"
 
 #define PATH_STDERR "/home/timmy/Scrivania/stderr-dataGenerator.txt"
@@ -18,6 +19,7 @@
 #define HOUSEHOLD "household "
 #define PLUG "plug "
 #define BLOCK 3600
+#define SEND_ALL_HOUSE 0
 
 struct measurement {
 	int date;
@@ -52,9 +54,6 @@ struct house {
 };
 typedef struct house House;
 
-//TODO BUG - I assume I'll receive a number equal to BLOCK * num_plug, but sometimes I'll receive less data
-// in fact if I read a big quantity of data (more than 1h) I've no problem with the 1° iteration
-
 int count_plugs(House *);
 int count_houses(House *);
 int read_group_of_lines (char ***, FILE **, int);
@@ -87,14 +86,26 @@ int split(char *, char, char ***);
 void free_tokens(char ***, int);
 char *str_replace(char *, char *, char *);
 int startsWith(char *, char *);
-int send_message(char *, int);
-int send_num_message(int, int);
-int receive_message(char **, int);
-int receive_num_message(int *, int);
-void send_house(int, House *, char **, int, int);
+//Communication part
+int send_message(char *, int, int);
+int send_num_message(int, int, int);
+int send_long_message(long, int, int);
+int send_float_message(float, int, int);
+int send_initial_message(int, int, long, int, int);
+int receive_message(char **, int, int);
+int receive_num_message(int *, int, int);
+int receive_long_message(long *, int, int);
+int receive_float_message(float *, int, int);
+int receive_initial_message(int *, int *, long *, int, int);
+void send_house(int, House *, char **, int, int, int);
+void send_plug(int, House *, char **, int, int);
 House *find_house(House *, int);
 int find_plug_before(House *, int);
-void receive_house();
+void receive_house(int tag);
+void receive_plug(int **, int *, int);
+int min(int, int);
+int get_plug_value(char *);
+float calculate_median_load(int *, int);
 
 int main(int argc, char *argv[]) {
 	int rank, num_processes;
@@ -105,6 +116,10 @@ int main(int argc, char *argv[]) {
 	long lines_read = 0;
 	int total_num_plugs = 0;
 	int total_num_houses = 0;
+	int num_ts = 0;
+	int num_thread = -1;
+	int plug_values[BLOCK];
+	float median_load;
 	FILE *my_stdout = NULL;
 	House *start_house = NULL;
 	House *last_house = NULL;
@@ -122,30 +137,30 @@ int main(int argc, char *argv[]) {
 	//What the master does
 	if(rank == 0){
 		//Create the initial structure reading from stderr (PATH_STDERR)
-		printf("START\tStructure creation\n");
 		create_initial_structure(PATH_STDERR, &start_house);
-		printf("END\tStructure creation\n");
-
+		printf("Created structure\n");
 		//Count lines of stdout reading from LINES_STDOUT
-		printf("START\tCounting stdout lines\n");
 		lines_stdout = count_lines_stdout(LINES_STDOUT);
 		lines_left = lines_stdout;
-		printf("END\tCounting stdout lines\tTotal lines: %ld\n", lines_stdout);
-
 		total_num_houses = count_houses(start_house);
 		total_num_plugs = count_plugs(start_house);
+		printf("Lines: %ld\tHouses: %d\tPlugs: %d\n", lines_stdout, total_num_houses, total_num_plugs);
 
 		//Here send the initial informations
 		for(i = 1; i < num_processes; i++){
-			send_num_message(total_num_houses, i);
-			send_num_message(total_num_plugs ,i);
+			#pragma omp parallel num_threads(num_processes)
+			{
+				num_thread = omp_get_thread_num();
+				send_initial_message(total_num_houses, total_num_plugs, lines_left, i, num_thread);
+			}
 		}
+		printf("Information sent to other processes\n");
 
 		my_stdout = open_file(PATH_STDOUT);
 		while(lines_left > 0){
-			lines_read = read_group_of_lines (&group_lines, &my_stdout, total_num_plugs*BLOCK);
+			lines_read = read_group_of_lines (&group_lines, &my_stdout, min (total_num_plugs*BLOCK, lines_left));
 			lines_left -= lines_read;
-			printf("Read %ld lines\n", lines_read);
+			num_ts = lines_read/total_num_plugs;
 			
 			//Complete computation if I'm alone
 			if(num_processes == 1){
@@ -165,11 +180,38 @@ int main(int argc, char *argv[]) {
 				
 			} else {
 				//Here is what MASTER does if there are slaves
-				for (i = 0; i < total_num_houses; i += num_processes){
-					//Creo 2 thread: 1 computa, l'altro invia
-					for (j=1; j<num_processes; j++){
-						send_house(i+j, start_house, group_lines, j, (lines_read/total_num_plugs));
+				if(SEND_ALL_HOUSE){
+					//TODO Doesn't calculate anything
+					for (i = 0; i < total_num_houses; i += num_processes){
+						#pragma omp parallel num_threads(num_processes)
+						{
+							num_thread = omp_get_thread_num();
+							send_house(i+j, start_house, group_lines, j, num_ts, num_thread);
+						}
 					}
+				} else {
+					//In this case I send only a plug
+					for (i = 0; i < total_num_plugs; i += num_processes){
+						#pragma omp parallel num_threads(num_processes)
+						{
+							num_thread = omp_get_thread_num();
+							if(num_thread == 0){
+								//TODO fill plug_values
+								median_load = calculate_median_load(plug_values, num_ts);
+								//TODO Assign the median load to the appropriated plug
+							}
+							if(i + num_thread < total_num_plugs){
+								send_plug(i+num_thread, start_house, group_lines, num_thread, num_ts);
+							}
+							//TODO receive back median load of the plug
+							//TODO Assign the median load to the appropriated plug
+						}
+					}
+				}
+
+				//Send the update about remaining lines to read
+				for(i = 1; i < num_processes; i++){
+					send_long_message(lines_left, i, i);
 				}
 			}
 
@@ -178,13 +220,23 @@ int main(int argc, char *argv[]) {
 	} else {
 		//That's what the SLAVE does
 		//Receive initial information
-		receive_num_message(&total_num_houses, 0);
-		receive_num_message(&total_num_plugs, 0);
+		receive_initial_message(&total_num_houses, &total_num_plugs, &lines_left, 0, rank);
 
-		//TODO I compute only a pack of data - no computation if thare are many many data so far
-		for (i = rank; i < total_num_houses; i += num_processes){
-			receive_house();
-			printf("Slave %d\tReceived house: %d\n", rank, i);
+		while(lines_left > 0){
+			if(SEND_ALL_HOUSE){
+				for (i = rank; i < total_num_houses; i += num_processes){
+					receive_house();
+					printf("Slave %d\tReceived house: %d\n", rank, i);
+				}
+			} else {
+				//In this case I receive a plug per time
+				for (i = rank; i < total_num_houses; i += num_processes){
+					receive_plug(&plug_values);
+					median_load = calculate_median_load(plug_values, num_ts);
+					//TODO Send back median load
+				}
+			}
+			receive_long_message(&lines_left, 0);
 		}
 		printf("Slave %d\tFinished my job, finally free!\n", rank);
 	}
@@ -218,12 +270,17 @@ int count_houses(House *start_house){
 }
 
 /*
- *TODO Write how it works
+ * Read from the stdout a number of lines smaller or equal to one hour of measurement
+ *
+ * group_to_fill	->	Array of string where all the interested string will be loaded.
+ * my_stdout		->	Pointer to the strea, where string will be read
+ * num_of_lines		->	Number of lines to read
+ *
+ * return			->	Number of lines effectively read
  */
 int read_group_of_lines (char ***group_to_fill, FILE **my_stdout, int num_of_lines){
 	char *read_line = NULL;
 	int other_lines;
-	int temp;
 	size_t len;
 	int i;
 
@@ -241,9 +298,10 @@ int read_group_of_lines (char ***group_to_fill, FILE **my_stdout, int num_of_lin
 		free(read_line);
 		read_line = NULL;
 	}
-
-	temp = i;
-	return temp;
+	if(num_of_lines != i){
+		printf("Attention:	#expected lines: %d\t#read lines: %d\n", num_of_lines, i);
+	}
+	return i;
 }
 
 /*
@@ -480,7 +538,7 @@ void elaborate_stderr(House **start_h, House **last_h, Household **last_hh,
 		}
 	}
 //	printf("Finished to create an house\n");
-}
+}calculate_median_load(plug_values, num_ts);
 
 // Inserts a house inside the initial structure
 void insert_house(House **start_house, House **last_appended, char *string_id) {
@@ -926,57 +984,114 @@ int startsWith(char *pre, char *str) {
 	return lenstr < lenpre ? 0 : strncmp(pre, str, lenpre) == 0;
 }
 
-int send_message(char *my_message, int dest){
+int send_message(char *my_message, int dest, int tag){
 	int i;
 	int len = (int)strlen(my_message);
 	if (len < 1){
 		printf("Error\tTerminate Execution\n");
 		return 0;
 	}
-	MPI_Send(&len, 1, MPI_INT, dest, 1, MPI_COMM_WORLD);
+	MPI_Send(&len, 1, MPI_INT, dest, tag, MPI_COMM_WORLD);
 	for(i=0; i<len; i++){
-		MPI_Send(&(my_message[i]), 1, MPI_CHAR, dest, 1, MPI_COMM_WORLD);
+		MPI_Send(&(my_message[i]), tag, MPI_CHAR, dest, 1, MPI_COMM_WORLD);
 	}
 	return 1;
 }
 
-int send_num_message(int num, int dest){
-	MPI_Send(&num, 1, MPI_INT, dest, 1, MPI_COMM_WORLD);
+int send_num_message(int num, int dest, int tag){
+	MPI_Send(&num, 1, MPI_INT, dest, tag, MPI_COMM_WORLD);
 	return 1;
 }
 
-int receive_message(char **my_message, int source){
+int send_long_message(long num, int dest, int tag){
+	MPI_Send(&num, 1, MPI_LONG, dest, tag, MPI_COMM_WORLD);
+	return 1;
+}
+
+int send_float_message(float num, int dest, int tag){
+	MPI_Send(&num, 1, MPI_FLOAT, dest, tag, MPI_COMM_WORLD);
+	return 1;
+}
+
+int receive_message(char **my_message, int source, int tag){
 	MPI_Status stat;
 	char test = 'q';
 	int len = -1;
 	int i;
-	MPI_Recv(&len, 1, MPI_INT, source, 1, MPI_COMM_WORLD, &stat);
+	MPI_Recv(&len, 1, MPI_INT, source, tag, MPI_COMM_WORLD, &stat);
 	if (len < 1){
-		printf("Error\tTerminate Execution\n");
-	return 0;
+		printf("ERROR - lenght of the message to receive is: %d\tTerminate Execution\n", len);
+		return 0;
 	}
 	(*my_message) = (char *) malloc (sizeof(char)*(len+1));
 	for(i=0; i<len; i++){
-	MPI_Recv(&test, 1, MPI_INT, source, 1, MPI_COMM_WORLD, &stat);
+	MPI_Recv(&test, 1, MPI_INT, source, tag, MPI_COMM_WORLD, &stat);
 		(*my_message)[i] = test;
 	}
 	(*my_message)[len] = '\0';
 	return 1;
 }
 
-int receive_num_message(int *num, int source){
+int receive_num_message(int *num, int source, int tag){
 		MPI_Status stat;
 		*num = -1;
-		MPI_Recv(num, 1, MPI_INT, source, 1, MPI_COMM_WORLD, &stat);
+		MPI_Recv(num, 1, MPI_INT, source, tag, MPI_COMM_WORLD, &stat);
 		if (*num < 1){
-			printf("Error\tTerminate Execution\n");
+			printf("ERROR - received int is: %d\tTerminate Execution\n", *num);
+			return 0;
+		}
+	return 1;
+}
+
+int receive_long_message(long *num, int source, int tag){
+		MPI_Status stat;
+		*num = -1;
+		MPI_Recv(num, 1, MPI_LONG, source, tag, MPI_COMM_WORLD, &stat);
+		if (*num < 0){
+			printf("ERROR - received long is: %ld\tTerminate Execution\n", *num);
 		return 0;
 		}
 	return 1;
 }
 
+int receive_float_message(float *num, int source, int tag){
+		MPI_Status stat;
+		*num = -1;
+		MPI_Recv(num, 1, MPI_FLOAT, source, tag, MPI_COMM_WORLD, &stat);
+		if (*num < 0){
+			printf("ERROR - received float is: %f\tTerminate Execution\n", *num);
+		return 0;
+		}
+	return 1;
+}
+
+/*
+ * THREAD SAFE
+ * Send the information about a single plug
+ */
+void send_plug(int plug_before, House *start_house, char **group_lines, int dest, int num_ts){
+	int i, line_to_send;
+	int total_plug;
+	int value;
+	House *my_house;
+
+	total_plug = count_plugs(start_house);
+	if (plug_before >= total_plug){
+		//If there are X total plug, there cannot be X or more plug before the one I'm sending
+		return;
+	}
+
+	//Send the information on how many measurements will be sent
+	send_num_message(num_ts, dest);
+	for(i = 0; i < num_ts; i++){
+		line_to_send = plug_before + i*total_plug;
+		value = get_plug_value( group_lines[line_to_send] );
+		send_num_message (value, dest);
+	}
+}
+
 //Here I send to the client all the information about his house
-void send_house(int house_id, House *start_house, char **group_lines, int dest, int num_ts){
+void send_house(int house_id, House *start_house, char **group_lines, int dest, int num_ts, int tag){
 	int i, j, line_to_send;
 	int plug_before, total_plug;
 	House *my_house;
@@ -990,7 +1105,7 @@ void send_house(int house_id, House *start_house, char **group_lines, int dest, 
 	plug_before = find_plug_before(start_house, house_id);
 	total_plug = count_plugs(start_house);
 	//Send the information on how many houses will be sent
-	send_num_message(num_ts*(my_house->num_plug), dest);
+	send_num_message(num_ts*(my_house->num_plug), dest, tag);
 
 	//Cycle to read all timestamps - A number equal to the value of BLOCK
 	for(i = 0; i < num_ts; i++){
@@ -998,7 +1113,7 @@ void send_house(int house_id, House *start_house, char **group_lines, int dest, 
 		for(j = 0; j < my_house->num_plug; j++){
 			//plug before is the initial offset
 			line_to_send = plug_before + j + (i * total_plug);
-			send_message(group_lines[line_to_send], dest);
+			send_message(group_lines[line_to_send], dest, tag);
 		}
 	}
 }
@@ -1029,13 +1144,13 @@ int find_plug_before(House *start_house, int house_id){
 	return num;
 }
 
-void receive_house(){
+void receive_house(int tag){
 	//TODO
 	int i, house_to_receive;
 	char *my_string = NULL;
-	receive_num_message(&house_to_receive, 0);
+	receive_num_message(&house_to_receive, 0, tag);
 	for(i = 0; i < house_to_receive; i++){
-		receive_message(&my_string, 0);
+		receive_message(&my_string, 0, tag);
 		//printf("Slave\tString:[%s]\n", my_string);
 		free(my_string);
 		my_string = NULL;
@@ -1043,4 +1158,58 @@ void receive_house(){
 
 	printf("Received %d messages\n", i);
 	//TODO free message after having used the string
+}
+
+/*
+ * Send all the initial messages to a process
+ */
+int send_initial_message(int n_houses, int n_plugs, long n_lines, int destination, int tag){
+	int i = -2;
+	i += send_num_message(n_houses, destination, tag);
+	i +=send_num_message(n_plugs, destination, tag);
+	i +=send_long_message(n_lines, destination, tag);
+	return i;
+}
+
+/*
+ * Receive all initial message from a process
+ */
+int receive_initial_message(int *n_houses, int *n_plugs, long *n_lines, int source, int tag){
+	int i = -2;
+	i += receive_num_message(n_houses, source, tag);
+	i += receive_num_message(n_plugs, source, tag);
+	i += receive_long_message(n_lines, source, tag);
+	return i;
+}
+
+int min(int a, int b){
+	return a<b ? a : b;
+}
+
+void receive_plug(int ** int_to_evaluate, int *num_ts, int tag){
+	int i;
+	receive_num_message(num_ts, 0, tag);
+	for(i = 0; i < *num_ts; i++){
+		receive_num_message ( &((*int_to_evaluate)[i]), 0, tag);
+	}
+}
+
+int get_plug_value(char *string){
+	char **splitted_list;
+	int value = -1;
+	split(string, ',', &splitted_list);
+	value = atoi(splitted_list[5]);
+	return value;
+}
+
+float calculate_median_load(int *plug_values, int num_ts){
+	//TODO
+	float my_val = 0;
+	long sum = 0;
+	int i;
+	for (i = 0; i < num_ts){
+		sum += plug_values[i];
+	}
+	my_val = ((float) sum / num_ts);
+	return my_val;
 }
