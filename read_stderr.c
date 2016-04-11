@@ -162,20 +162,13 @@ int main(int argc, char *argv[]) {
 			}
 		}
 		printf("MASTER\tInformation sent to other processes\n");
-		sleep(5);
 
 		my_stdout = open_file(PATH_STDOUT);
 		while(lines_left > 0){
 			lines_read = read_group_of_lines (&group_lines, &my_stdout, min (total_num_plugs*BLOCK, lines_left));
 			lines_left -= lines_read;
 			num_ts = lines_read/total_num_plugs;
-			if((hour_iteration % 24) == 0){
-				if(hour_iteration == 24){
-					hour_iteration = 0;
-				}
-			}
 
-			
 			//Complete computation if I'm alone
 			if(num_processes == 1){
 				//If master is the only one running, I execute everything alone
@@ -205,18 +198,23 @@ int main(int argc, char *argv[]) {
 				} else {
 				//In this case I send only a single plug
 					for (i = 0; i < total_num_plugs; i += num_processes){
-						#pragma omp parallel num_threads(num_processes)
+						#pragma omp parallel num_threads(num_processes) private(num_thread)
 						{
 							num_thread = omp_get_thread_num();
-							if(num_thread == 0){
-								//TODO fill plug_values
+							if (num_thread == 0){
+								//I organize the matrix plug_values
+								for(j = 0; j < num_ts; j++){
+									plug_values[j] = get_plug_value( group_lines[i + (j * total_num_plugs)] );
+								}
 								median_load[num_thread] = calculate_median_load(plug_values, num_ts);
 							} else {
 								if(i + num_thread < total_num_plugs){
 									//Send data to elaborate
+									printf("Master\tElaborate plug #%d\n", i+num_thread);
 									send_plug(i+num_thread, start_house, group_lines, num_thread, num_ts);
 									//Receive answer
 									receive_float_message(&(median_load[num_thread]), num_thread, num_thread);
+									printf("Master\tReceived the following median value: %f\n", median_load[num_thread]);
 								}
 							}
 							//Saving elaborated data
@@ -226,8 +224,10 @@ int main(int argc, char *argv[]) {
 				}
 
 				//Send the update about remaining lines to read
-				for(i = 1; i < num_processes; i++){
-					send_long_message(lines_left, i, i);
+				#pragma omp parallel num_threads(num_processes)
+				{
+					num_thread = omp_get_thread_num();
+					send_long_message(lines_left, num_thread, num_thread);
 				}
 			}
 			hour_iteration ++;
@@ -240,7 +240,6 @@ int main(int argc, char *argv[]) {
 		receive_initial_message(&total_num_houses, &total_num_plugs, &lines_left, 0, rank);
 
 		printf("Slave %d\t#House: %d - #Plug: %d - #Lines: %ld\n", rank, total_num_houses, total_num_plugs, lines_left);
-		sleep(5);
 
 		while(lines_left > 0){
 			if(SEND_ALL_HOUSE){
@@ -250,13 +249,15 @@ int main(int argc, char *argv[]) {
 				}
 			} else {
 				//In this case I receive a plug per time
-				for (i = rank; i < total_num_houses; i += num_processes){
+				for (i = rank; i < total_num_plugs; i += num_processes){
 					receive_plug (&plug_values, &num_ts, rank);
 					median_load[rank] = calculate_median_load(plug_values, num_ts);
+					printf("Slave %d\tCalculated the following ML: %f\n", rank, median_load[rank]);
 					send_float_message(median_load[rank], 0, rank);
 				}
 			}
 			receive_long_message(&lines_left, 0, rank);
+			printf("Slave %d\t#lines left: %ld\n", rank, lines_left);
 		}
 		printf("Slave %d\tFinished my job, finally free!\n", rank);
 	}
@@ -1057,9 +1058,8 @@ int receive_int_message(int *num, int source, int tag){
 		MPI_Status stat;
 		*num = -1;
 		MPI_Recv(num, 1, MPI_INT, source, tag, MPI_COMM_WORLD, &stat);
-		if (*num < 1){
+		if (*num < 0){
 			printf("ERROR - received int is: %d\tTerminate Execution\n", *num);
-			sleep(5);
 			return 0;
 		}
 	return 1;
@@ -1095,7 +1095,6 @@ void send_plug(int plug_before, House *start_house, char **group_lines, int dest
 	int i, line_to_send;
 	int total_plug;
 	int value;
-
 	total_plug = count_plugs(start_house);
 	if (plug_before >= total_plug){
 		//If there are X total plug, there cannot be X or more plug before the one I'm sending
@@ -1166,7 +1165,7 @@ int find_plug_before(House *start_house, int house_id){
 }
 
 void receive_house(int tag){
-	//TODO
+	//TODO Actually this function isn't used
 	int i, house_to_receive;
 	char *my_string = NULL;
 	receive_int_message(&house_to_receive, 0, tag);
@@ -1178,7 +1177,6 @@ void receive_house(int tag){
 	}
 
 	printf("Received %d messages\n", i);
-	//TODO free message after having used the string
 }
 
 /*
