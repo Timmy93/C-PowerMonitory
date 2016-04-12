@@ -21,6 +21,8 @@
 #define BLOCK 3600
 #define SEND_ALL_HOUSE 0
 
+//TODO buggy with more than 2 processes
+//TODO set some private value
 //TODO modified hour[] from int to float
 struct measurement {
 	int date;
@@ -101,7 +103,7 @@ int receive_long_message(long *, int, int);
 int receive_float_message(float *, int, int);
 int receive_initial_message(int *, int *, long *, int, int);
 void send_house(int, House *, char **, int, int, int);
-void send_plug(int, House *, char **, int, int);
+void send_plug(int, int, House *, char **, int, int);
 House *find_house(House *, int);
 int find_plug_before(House *, int);
 void receive_house(int);
@@ -123,7 +125,7 @@ int main(int argc, char *argv[]) {
 	int num_ts = 0;
 	int num_thread = -1;
 	int *plug_values;
-	float *median_load;
+	float median_load;
 	FILE *my_stdout = NULL;
 	House *start_house = NULL;
 	House *last_house = NULL;
@@ -137,7 +139,6 @@ int main(int argc, char *argv[]) {
 	MPI_Comm_rank(MPI_COMM_WORLD, &rank);
 	
 	plug_values = (int *) malloc (sizeof (int) * BLOCK);
-	median_load = (float *) malloc (sizeof(float) * num_processes);
 	t_start = clock();
 
 	//What the master does
@@ -152,7 +153,7 @@ int main(int argc, char *argv[]) {
 		total_num_plugs = count_plugs(start_house);
 		printf("MASTER\tLines: %ld\tHouses: %d\tPlugs: %d\n", lines_left, total_num_houses, total_num_plugs);
 		//Here send the initial informations
-		#pragma omp parallel num_threads(num_processes)
+		#pragma omp parallel num_threads(num_processes) private(num_thread)
 		{
 			num_thread = omp_get_thread_num();
 			if(num_thread != 0){
@@ -161,9 +162,9 @@ int main(int argc, char *argv[]) {
 				}
 			}
 		}
-		printf("MASTER\tInformation sent to other processes\n");
-
+//		printf("MASTER\tInformation sent to other processes\n");
 		my_stdout = open_file(PATH_STDOUT);
+
 		while(lines_left > 0){
 			lines_read = read_group_of_lines (&group_lines, &my_stdout, min (total_num_plugs*BLOCK, lines_left));
 			lines_left -= lines_read;
@@ -186,45 +187,39 @@ int main(int argc, char *argv[]) {
 				}
 			} else {
 			//Here is what MASTER does if there are slaves
-				if(SEND_ALL_HOUSE){
-					//TODO Doesn't calculate anything
-					for (i = 0; i < total_num_houses; i += num_processes){
-						#pragma omp parallel num_threads(num_processes)
-						{
-							num_thread = omp_get_thread_num();
-							send_house(i+j, start_house, group_lines, j, num_ts, num_thread);
-						}
-					}
-				} else {
-				//In this case I send only a single plug
-					for (i = 0; i < total_num_plugs; i += num_processes){
-						#pragma omp parallel num_threads(num_processes) private(num_thread)
-						{
-							num_thread = omp_get_thread_num();
+				for (i = 0; i < total_num_plugs; i += num_processes){
+					#pragma omp parallel num_threads(num_processes) private(num_thread, median_load)
+					{
+						num_thread = omp_get_thread_num();
+						//Here I check if there is a plug to calculate
+						if(i+num_thread < total_num_plugs){
 							if (num_thread == 0){
 								//I organize the matrix plug_values
 								for(j = 0; j < num_ts; j++){
 									plug_values[j] = get_plug_value( group_lines[i + (j * total_num_plugs)] );
 								}
-								median_load[num_thread] = calculate_median_load(plug_values, num_ts);
+								median_load = calculate_median_load(plug_values, num_ts);
 							} else {
 								if(i + num_thread < total_num_plugs){
 									//Send data to elaborate
-									printf("Master\tElaborate plug #%d\n", i+num_thread);
-									send_plug(i+num_thread, start_house, group_lines, num_thread, num_ts);
+//									printf("Plug %d sent\n", i+num_thread);
+									send_plug(i+num_thread, total_num_plugs, start_house, group_lines, num_thread, num_ts);
+	//								printf("Plug info received\n");
 									//Receive answer
-									receive_float_message(&(median_load[num_thread]), num_thread, num_thread);
-									printf("Master\tReceived the following median value: %f\n", median_load[num_thread]);
+									receive_float_message(&median_load, num_thread, num_thread);
+//									printf("Median value received %f\n", median_load);
 								}
 							}
 							//Saving elaborated data
-							assign_median_load(median_load[num_thread], i+num_thread, hour_iteration, num_ts, start_house);
+							assign_median_load(median_load, i+num_thread, hour_iteration, num_ts, start_house);
+							printf("Master\tPlug %d - %f\n", i+num_thread, median_load);
 						}
 					}
 				}
-
+				
+//				printf("Send lines update\n");
 				//Send the update about remaining lines to read
-				#pragma omp parallel num_threads(num_processes)
+				#pragma omp parallel num_threads(num_processes) private(num_thread)
 				{
 					num_thread = omp_get_thread_num();
 					send_long_message(lines_left, num_thread, num_thread);
@@ -236,29 +231,24 @@ int main(int argc, char *argv[]) {
 	} else {
 		//That's what the SLAVE does
 		//Receive initial information
-		printf("Slave %d\tWaiting initial message\n", rank);
+//		printf("Slave %d\tWaiting initial message\n", rank);
 		receive_initial_message(&total_num_houses, &total_num_plugs, &lines_left, 0, rank);
-
-		printf("Slave %d\t#House: %d - #Plug: %d - #Lines: %ld\n", rank, total_num_houses, total_num_plugs, lines_left);
+//		printf("Slave %d\t#House: %d - #Plug: %d - #Lines: %ld\n", rank, total_num_houses, total_num_plugs, lines_left);
 
 		while(lines_left > 0){
-			if(SEND_ALL_HOUSE){
-				for (i = rank; i < total_num_houses; i += num_processes){
-					receive_house(rank);
-					printf("Slave %d\tReceived house: %d\n", rank, i);
-				}
-			} else {
-				//In this case I receive a plug per time
-				for (i = rank; i < total_num_plugs; i += num_processes){
-					receive_plug (&plug_values, &num_ts, rank);
-					median_load[rank] = calculate_median_load(plug_values, num_ts);
-					printf("Slave %d\tCalculated the following ML: %f\n", rank, median_load[rank]);
-					send_float_message(median_load[rank], 0, rank);
-				}
+			//In this case I receive a plug per time
+			for (i = rank; i < total_num_plugs; i += num_processes){
+				receive_plug (&plug_values, &num_ts, rank);
+				median_load = calculate_median_load(plug_values, num_ts);
+//				printf("Slave %d\tCalculated the following ML: %f\n", rank, median_load[rank]);
+				send_float_message(median_load, 0, rank);
 			}
+		
+//			printf("Slave %d\tWait for line update\n", rank);
 			receive_long_message(&lines_left, 0, rank);
-			printf("Slave %d\t#lines left: %ld\n", rank, lines_left);
+//			printf("Slave %d\t#lines left: %ld\n", rank, lines_left);
 		}
+		
 		printf("Slave %d\tFinished my job, finally free!\n", rank);
 	}
 	
@@ -1091,13 +1081,12 @@ int receive_float_message(float *num, int source, int tag){
  * THREAD SAFE
  * Send the information about a single plug
  */
-void send_plug(int plug_before, House *start_house, char **group_lines, int dest, int num_ts){
+void send_plug(int plug_before, int total_plug, House *start_house, char **group_lines, int dest, int num_ts){
 	int i, line_to_send;
-	int total_plug;
 	int value;
-	total_plug = count_plugs(start_house);
 	if (plug_before >= total_plug){
 		//If there are X total plug, there cannot be X or more plug before the one I'm sending
+		printf("\n\nAHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHH\n\n");
 		return;
 	}
 
@@ -1107,6 +1096,15 @@ void send_plug(int plug_before, House *start_house, char **group_lines, int dest
 		line_to_send = plug_before + i*total_plug;
 		value = get_plug_value( group_lines[line_to_send] );
 		send_int_message (value, dest, dest);
+	}
+}
+
+void receive_plug(int ** int_to_evaluate, int *num_ts, int tag){
+	int i;
+	receive_int_message(num_ts, 0, tag);
+
+	for(i = 0; i < *num_ts; i++){
+		receive_int_message ( &((*int_to_evaluate)[i]), 0, tag);
 	}
 }
 
@@ -1138,6 +1136,21 @@ void send_house(int house_id, House *start_house, char **group_lines, int dest, 
 	}
 }
 
+void receive_house(int tag){
+	//TODO Actually this function isn't used
+	int i, house_to_receive;
+	char *my_string = NULL;
+	receive_int_message(&house_to_receive, 0, tag);
+	for(i = 0; i < house_to_receive; i++){
+		receive_message(&my_string, 0, tag);
+		//printf("Slave\tString:[%s]\n", my_string);
+		free(my_string);
+		my_string = NULL;
+	}
+
+	printf("Received %d messages\n", i);
+}
+
 House *find_house(House *starting_house, int id){
 	House *my_house = starting_house;
 	while (my_house->id != id){
@@ -1164,21 +1177,6 @@ int find_plug_before(House *start_house, int house_id){
 	return num;
 }
 
-void receive_house(int tag){
-	//TODO Actually this function isn't used
-	int i, house_to_receive;
-	char *my_string = NULL;
-	receive_int_message(&house_to_receive, 0, tag);
-	for(i = 0; i < house_to_receive; i++){
-		receive_message(&my_string, 0, tag);
-		//printf("Slave\tString:[%s]\n", my_string);
-		free(my_string);
-		my_string = NULL;
-	}
-
-	printf("Received %d messages\n", i);
-}
-
 /*
  * Send all the initial messages to a process
  */
@@ -1203,14 +1201,6 @@ int receive_initial_message(int *n_houses, int *n_plugs, long *n_lines, int sour
 
 int min(int a, int b){
 	return a<b ? a : b;
-}
-
-void receive_plug(int ** int_to_evaluate, int *num_ts, int tag){
-	int i;
-	receive_int_message(num_ts, 0, tag);
-	for(i = 0; i < *num_ts; i++){
-		receive_int_message ( &((*int_to_evaluate)[i]), 0, tag);
-	}
 }
 
 /*
