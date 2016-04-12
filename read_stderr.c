@@ -21,9 +21,7 @@
 #define BLOCK 3600
 #define SEND_ALL_HOUSE 0
 
-//TODO buggy with more than 2 processes
-//TODO set some private value
-//TODO modified hour[] from int to float
+//TODO Doesn't work with more than 2 processes
 struct measurement {
 	int date;
 	float hour[24];
@@ -112,6 +110,7 @@ int min(int, int);
 int get_plug_value(char *);
 float calculate_median_load(int *, int);
 void assign_median_load(float, int, int, int, House *);
+void calculate_median_load(House *, int );
 
 int main(int argc, char *argv[]) {
 	int rank, num_processes;
@@ -187,7 +186,7 @@ int main(int argc, char *argv[]) {
 					}
 				}
 			} else {
-			//Here is what MASTER does if there are slaves
+				//Here is what MASTER does if there are slaves
 				for (i = 0; i < total_num_plugs; i += num_processes){
 					#pragma omp parallel num_threads(num_processes) private(num_thread, median_load)
 					{
@@ -203,9 +202,9 @@ int main(int argc, char *argv[]) {
 							} else {
 								if(i + num_thread < total_num_plugs){
 									//Send data to elaborate
-									printf("Plug %d sent\n", i+num_thread);
+//									printf("Master\tThread %d\nSend plug %d to %d\n", num_thread, i+num_thread, num_thread);
 									send_plug(i+num_thread, total_num_plugs, start_house, group_lines, num_thread, num_ts);
-//									printf("Plug info received\n");
+//									printf("Master\tThread %d\nPlug %d sent to %d\n", num_thread, i+num_thread, num_thread);
 									//Receive answer
 									receive_float_message(&median_load, num_thread, num_thread);
 //									printf("Median value received %f\n", median_load);
@@ -217,7 +216,7 @@ int main(int argc, char *argv[]) {
 						}
 					}
 				}
-				
+
 //				printf("Send lines update\n");
 				//Send the update about remaining lines to read
 				#pragma omp parallel num_threads(num_processes) private(num_thread)
@@ -240,7 +239,9 @@ int main(int argc, char *argv[]) {
 		while(lines_left > 0){
 			//In this case I receive a plug per time
 			for (i = rank; i < total_num_plugs; i += num_processes){
+				//printf("Slave %d\tWaiting for plug %d\n", rank, i);
 				receive_plug (&plug_values, &num_ts, rank);
+				//printf("Slave %d\treceived plug %d\n", rank, i);
 				median_load = calculate_median_load(plug_values, num_ts);
 //				printf("Slave %d\tCalculated the following ML: %f\n", rank, median_load[rank]);
 				send_float_message(median_load, 0, rank);
@@ -420,8 +421,6 @@ void reach_plug(Plug **last_p, int id) {
 }
 
 void insert_data(Plug *last_p, long timestamp, int value_measurement) {
-	printf("\nCreating new measurement data\n\n");
-	sleep(5);
 	int date = 0;
 	int hour = 0;
 	int i = 0;
@@ -1000,6 +999,7 @@ int startsWith(char *pre, char *str) {
 }
 
 int send_message(char *my_message, int dest, int tag){
+	tag = 0;
 	int i;
 	int len = (int)strlen(my_message);
 	if (len < 1){
@@ -1014,22 +1014,26 @@ int send_message(char *my_message, int dest, int tag){
 }
 
 int send_int_message(int num, int dest, int tag){
+	tag = 0;
 	MPI_Send(&num, 1, MPI_INT, dest, tag, MPI_COMM_WORLD);
 	return 1;
 }
 
 int send_long_message(long num, int dest, int tag){
+	tag = 0;
 	MPI_Send(&num, 1, MPI_LONG, dest, tag, MPI_COMM_WORLD);
 	return 1;
 }
 
 int send_float_message(float num, int dest, int tag){
+	tag = 0;
 	MPI_Send(&num, 1, MPI_FLOAT, dest, tag, MPI_COMM_WORLD);
 	return 1;
 }
 
 int receive_message(char **my_message, int source, int tag){
 	MPI_Status stat;
+	tag = 0;
 	char test = 'q';
 	int len = -1;
 	int i;
@@ -1050,6 +1054,7 @@ int receive_message(char **my_message, int source, int tag){
 int receive_int_message(int *num, int source, int tag){
 		MPI_Status stat;
 		*num = -1;
+		tag = 0;
 		MPI_Recv(num, 1, MPI_INT, source, tag, MPI_COMM_WORLD, &stat);
 		if (*num < 0){
 			printf("ERROR - received int is: %d\tTerminate Execution\n", *num);
@@ -1061,6 +1066,7 @@ int receive_int_message(int *num, int source, int tag){
 int receive_long_message(long *num, int source, int tag){
 		MPI_Status stat;
 		*num = -1;
+		tag = 0;
 		MPI_Recv(num, 1, MPI_LONG, source, tag, MPI_COMM_WORLD, &stat);
 		if (*num < 0){
 			printf("ERROR - received long is: %ld\tTerminate Execution\n", *num);
@@ -1071,6 +1077,7 @@ int receive_long_message(long *num, int source, int tag){
 
 int receive_float_message(float *num, int source, int tag){
 		MPI_Status stat;
+		tag = 0;
 		*num = -1;
 		MPI_Recv(num, 1, MPI_FLOAT, source, tag, MPI_COMM_WORLD, &stat);
 		if (*num < 0){
@@ -1275,6 +1282,7 @@ void assign_median_load(float value, int n_plug_before, int hour_number, int num
 	//Find the right measuration time
 	hour_number = hour_number % 24;
 	if((hour_number == 0)){
+		printf("Creating new measurement data\n");
 		my_measurement = (Measurement *) malloc(sizeof(Measurement));
 		if(my_measurement == NULL){
 			printf("Error creation measurement\nSystem run out of memory\n");
@@ -1297,3 +1305,15 @@ void assign_median_load(float value, int n_plug_before, int hour_number, int num
 	my_measurement->hour[hour_number] = value;
 	my_measurement->num_ts[hour_number] = num_ts;
 }
+
+//TODO
+void calculate_median_load(House *start_house, int num_plugs){
+	int i = 0;
+	int n_th = -1;
+	int tot_th = 0;
+	#pragma omp parallel for private(i, n_th)
+	for(i = 0; i < num_plugs; i++){
+		;
+	}
+}
+
