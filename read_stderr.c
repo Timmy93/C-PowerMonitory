@@ -167,6 +167,7 @@ int main(int argc, char *argv[]) {
 
 		while(lines_left > 0){
 			lines_read = read_group_of_lines (&group_lines, &my_stdout, min (total_num_plugs*BLOCK, lines_left));
+			
 			lines_left -= lines_read;
 			num_ts = lines_read/total_num_plugs;
 
@@ -202,9 +203,9 @@ int main(int argc, char *argv[]) {
 							} else {
 								if(i + num_thread < total_num_plugs){
 									//Send data to elaborate
-//									printf("Plug %d sent\n", i+num_thread);
+									printf("Plug %d sent\n", i+num_thread);
 									send_plug(i+num_thread, total_num_plugs, start_house, group_lines, num_thread, num_ts);
-	//								printf("Plug info received\n");
+//									printf("Plug info received\n");
 									//Receive answer
 									receive_float_message(&median_load, num_thread, num_thread);
 //									printf("Median value received %f\n", median_load);
@@ -212,7 +213,7 @@ int main(int argc, char *argv[]) {
 							}
 							//Saving elaborated data
 							assign_median_load(median_load, i+num_thread, hour_iteration, num_ts, start_house);
-							printf("Master\tPlug %d - %f\n", i+num_thread, median_load);
+//							printf("Master\tPlug %d - %f\n", i+num_thread, median_load);
 						}
 					}
 				}
@@ -226,6 +227,7 @@ int main(int argc, char *argv[]) {
 				}
 			}
 			hour_iteration ++;
+			printf("Elaboration at: %.2f%%\n", (float)(lines_stdout-lines_left)*100/lines_stdout);
 			free_tokens(&group_lines, lines_read);
 		}
 	} else {
@@ -418,6 +420,8 @@ void reach_plug(Plug **last_p, int id) {
 }
 
 void insert_data(Plug *last_p, long timestamp, int value_measurement) {
+	printf("\nCreating new measurement data\n\n");
+	sleep(5);
 	int date = 0;
 	int hour = 0;
 	int i = 0;
@@ -448,7 +452,6 @@ void insert_data(Plug *last_p, long timestamp, int value_measurement) {
 	//Inizialize values
 	for (i = 0; i < 24; i++) {
 		new_measurement->hour[i] = 0;
-		;
 	}
 	//Insert read value
 	new_measurement->date = date;
@@ -1086,7 +1089,7 @@ void send_plug(int plug_before, int total_plug, House *start_house, char **group
 	int value;
 	if (plug_before >= total_plug){
 		//If there are X total plug, there cannot be X or more plug before the one I'm sending
-		printf("\n\nAHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHH\n\n");
+		printf("FATAL ERROR\tForgotten to check the number of memory sent\t");
 		return;
 	}
 
@@ -1213,8 +1216,10 @@ int min(int a, int b){
 int get_plug_value(char *string){
 	char **splitted_list;
 	int value = -1;
-	split(string, ',', &splitted_list);
+	int n_tokens;
+	n_tokens = split(string, ',', &splitted_list);
 	value = atoi(splitted_list[5]);
+	free_tokens(&splitted_list, n_tokens);
 	return value;
 }
 
