@@ -110,7 +110,10 @@ int min(int, int);
 int get_plug_value(char *);
 float calculate_median_load(int *, int);
 void assign_median_load(float, int, int, int, House *);
-void calculate_median_load(House *, int );
+void calculate_median_load_finally(House *, int);
+float median_load_house(House *my_house, int current_hour, int measurement_num);
+Plug *find_plug(House *, int);
+Measurement *find_measurement(Plug *, int);
 
 int main(int argc, char *argv[]) {
 	int rank, num_processes;
@@ -228,6 +231,7 @@ int main(int argc, char *argv[]) {
 			hour_iteration ++;
 			printf("Elaboration at: %.2f%%\n", (float)(lines_stdout-lines_left)*100/lines_stdout);
 			free_tokens(&group_lines, lines_read);
+			printf("The median value of plug 2 is: %f\n", start_house->h_households->hh_plugs->next->my_measurements->hour[0]);
 		}
 	} else {
 		//That's what the SLAVE does
@@ -253,6 +257,12 @@ int main(int argc, char *argv[]) {
 		}
 		
 		printf("Slave %d\tFinished my job, finally free!\n", rank);
+	}
+		
+	if(rank == 0){
+		printf("Start elaborating final data\n");
+		//TODO to debug - There's a segmentation fault
+		calculate_median_load_finally(start_house, (hour_iteration-1));
 	}
 	
 	t_end = clock();
@@ -1262,30 +1272,34 @@ void assign_median_load(float value, int n_plug_before, int hour_number, int num
 	Plug *my_plug;
 	Measurement *my_measurement;
 	int date;
-	//Find the right house
-	while(n_plug_before >= my_house->num_plug){
-		n_plug_before -= my_house->num_plug;
-		my_house = my_house->next;
-	}
-	//Find the right plug
-	my_household = my_house->h_households;
-	my_plug = my_household->hh_plugs;
-	while(n_plug_before == 0){
-		if(my_plug->next == NULL){
-			my_household = my_household->next;
-			my_plug = my_household->hh_plugs;
-		} else {
-			my_plug = my_plug->next;
-		}
-		n_plug_before--;
-	}
+//	//Find the right house
+//	while(n_plug_before >= my_house->num_plug){
+//		n_plug_before -= my_house->num_plug;
+//		my_house = my_house->next;
+//	}
+//	//Find the right plug
+//	my_household = my_house->h_households;
+//	my_plug = my_household->hh_plugs;
+//	while(n_plug_before == 0){
+//		if(my_plug->next == NULL){
+//			my_household = my_household->next;
+//			my_plug = my_household->hh_plugs;
+//		} else {
+//			my_plug = my_plug->next;
+//		}
+//		n_plug_before--;
+//	}
+	my_plug = find_plug(start_house, n_plug_before);
+	printf("Filling Plug: %d\n", my_plug->id );
+
 	//Find the right measuration time
 	hour_number = hour_number % 24;
 	if((hour_number == 0)){
-		printf("Creating new measurement data\n");
+//		printf("Creating new measurement data\n");
 		my_measurement = (Measurement *) malloc(sizeof(Measurement));
 		if(my_measurement == NULL){
 			printf("Error creation measurement\nSystem run out of memory\n");
+			exit(0);
 		}
 		if(my_plug->last_measurement == NULL){
 			//That's the first measurement
@@ -1306,14 +1320,148 @@ void assign_median_load(float value, int n_plug_before, int hour_number, int num
 	my_measurement->num_ts[hour_number] = num_ts;
 }
 
-//TODO
-void calculate_median_load(House *start_house, int num_plugs){
-	int i = 0;
-	int n_th = -1;
-	int tot_th = 0;
-	#pragma omp parallel for private(i, n_th)
-	for(i = 0; i < num_plugs; i++){
-		;
+/*
+ * At the end of execution, when I've the median load of each plug for each hour I calculate the median load for each house for each hour
+ *
+ * start_house			->	Where to start calculating
+ * hour_to_calculate	->	Total number of hour to calculate
+ */
+void calculate_median_load_finally(House *start_house, int hour_to_calculate){
+	int j, i;
+	int current_hour;
+	int measurement_num = -1;
+	int num_houses = count_houses(start_house);
+
+	House *last_house  = start_house;
+	Measurement *last_measurement = NULL;
+	Measurement *new_median_load = NULL;
+
+	for(i = 0; i < num_houses; i++){
+		last_house = find_house(start_house, i);
+		if(last_house->id != i){
+			printf("Error extracting house\tExpected House %d - Received House %d\n", i, last_house->id);
+			exit(0);
+		}
+		for(j = 0; j < hour_to_calculate; j++){
+			current_hour = j%24;
+			printf("Iteration: %d - Hour: %d\n", j, current_hour);
+			//Creation structure to save median load of the house
+			if( current_hour == 0 ){
+				measurement_num++;
+				new_median_load = (Measurement *) malloc(sizeof(Measurement));
+				if(last_measurement == NULL){
+					last_house->median_load = new_median_load;
+				} else {
+					last_measurement->next = new_median_load;
+				}
+				last_measurement = new_median_load;
+			}
+			//Inside last measurement I've the data to fill
+			if(last_house == NULL || current_hour < 0 || measurement_num < 0){
+				printf("ERROR\tCannot calculate the median value\n");
+				exit(0);
+			}
+			if(last_measurement == NULL){
+				printf("ERROR\tNot exist the last measurement to update\n");
+			}
+			last_measurement->hour[current_hour] = median_load_house(last_house, current_hour, measurement_num);
+		}
 	}
 }
 
+/*
+ * Calculate the median value of an house at a certain hour
+ *
+ * my_house			->	the house
+ * current_hour		->	the hour number of the day
+ * measurement_num	->	the day number
+ *
+ * return			->	The median load for that house in that day at that hour
+ */
+float median_load_house(House *my_house, int current_hour, int measurement_num){
+	float return_value;
+	float sum = 0;
+	int i, n_th;
+	int num_plugs = my_house->num_plug;
+	int values[num_plugs];
+	Plug * my_plug = NULL;
+	Measurement *my_meas = NULL;
+
+	printf("Calculating house: %d - Hour: %d - Day: %d\n", my_house->id, current_hour, measurement_num);
+
+	for(i = 0; i < num_plugs; i++){
+		my_plug = find_plug (my_house, i);
+		if(my_plug == NULL){
+			printf("ERROR\tCannot find appropiate plug\n");
+		}
+		my_meas = find_measurement (my_plug, measurement_num);
+		if(my_meas == NULL){
+			printf("ERROR\tCannot find appropiate measurement\n");
+		}
+		values[i] = my_meas->hour[current_hour];
+	}
+
+	#pragma omp parallel for private(i) reduction(+: sum)
+	for(i = 0; i < num_plugs; i++)
+	{
+		sum += values[i];
+	}
+	return_value = (sum/num_plugs);
+	return return_value;
+}
+
+//TODO Correct - still buggy - not found all the plugs
+/*
+ * Given a house and the plug number (different from ID) the function returns the reference to that plug
+ *
+ * my_house	->	Reference to the house where the function will look for the plug
+ * id		->	The number of the plug wanted
+ *
+ * return	->	The reference to the plug.
+ */
+Plug *find_plug(House *my_house, int id) {
+	int i;
+	Household *last_hh;
+	Plug *my_plug;
+	if(my_house == NULL){
+		printf("ERROR\tYou gave me NULL house\n");
+		return NULL;
+	}
+	last_hh = my_house->h_households;
+	my_plug = last_hh->hh_plugs;
+
+	for(i = 0; i < id ; i++){
+		if(my_plug->next == NULL){
+			if(last_hh->next == NULL){
+				printf("ERROR\tCannot find Plug #%d in the House #%d\n", id, my_house->id);
+			}
+			last_hh = last_hh->next;
+			my_plug = last_hh->hh_plugs;
+		} else {
+			my_plug = my_plug->next;
+		}
+	}
+	printf("Looking for: %d - Plug #%d in the House #%d\n", id, my_plug->id, my_house->id);
+	return my_plug;
+}
+
+/*
+ * Given a plug and the day number return the measurement for that day
+ */
+Measurement *find_measurement(Plug *my_plug, int measurement_num){
+	int i;
+	Measurement *meas = my_plug->my_measurements;
+	if(meas == NULL){
+		printf("ERROR\tPlug #%d doesn't have any measurement\n", my_plug->id);
+		exit(0);
+	}
+	for(i = 0; i < measurement_num; i++){
+		if(meas->next == NULL){
+			printf("ERROR\tStill not exist Measurement #%d\n", meas->date);
+			exit(0);
+		}
+		meas = meas->next;
+	}
+	printf("Looking for day %d - Found day %d - First value: %f\n", measurement_num, meas->date, meas->hour[0]);
+	return meas;
+}
