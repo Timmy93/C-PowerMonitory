@@ -259,9 +259,8 @@ int main(int argc, char *argv[]) {
 	}
 		
 	if(rank == 0){
-		printf("Start elaborating final data\n");
-		//TODO to debug
-		calculate_median_load_finally(start_house, (hour_iteration-1));
+		printf("Collected ML of each plug for a total of %d hours\n", hour_iteration);
+		calculate_median_load_finally(start_house, hour_iteration);
 	}
 	
 	t_end = clock();
@@ -1371,9 +1370,7 @@ void calculate_median_load_finally(House *start_house, int hour_to_calculate){
 		for(j = 0; j < hour_to_calculate; j++){
 			current_day = j/24;
 			current_hour = j%24;
-			
-			printf("Iteration: %d - Day: %d - Hour: %d\n", j, current_day, current_hour);
-			
+						
 			//New day - Creation structure to save median load of the house
 			if( current_hour == 0 ){
 				new_median_load = (Measurement *) malloc(sizeof(Measurement));
@@ -1447,8 +1444,6 @@ float median_load_house(House *my_house, int current_hour, int measurement_num){
 	
 	values = (int *) malloc(sizeof(int)*num_plugs);
 	
-	printf("Calculating house: %d - Hour: %d - Day: %d\n", my_house->id, current_hour, measurement_num);
-
 	for(i = 0; i < num_plugs; i++){
 		my_plug = find_plug (my_house, i);
 		if(my_plug == NULL){
@@ -1467,7 +1462,6 @@ float median_load_house(House *my_house, int current_hour, int measurement_num){
 		sum += values[i];
 	}
 	return_value = (sum/num_plugs);
-	printf("(omp) - House #%d - ML %f\n", my_house->id, return_value);
 	free(values);
 	return return_value;
 }
@@ -1532,6 +1526,5 @@ Measurement *find_measurement(Plug *my_plug, int measurement_num){
 		}
 		meas = meas->next;
 	}
-	printf("Looking for day %d - Found day %d - First value: %f\n", measurement_num, meas->date, meas->hour[0]);
 	return meas;
 }
