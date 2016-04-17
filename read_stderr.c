@@ -117,8 +117,8 @@ Plug *find_plug(House *, int);
 Measurement *find_measurement(Plug *, int);
 void calculate_over_mean(House *start_house, int hour_to_calculate);
 void update_over_mean(House *, int );
-int has_next_measurement(Measurement *m);
-int has_next_house(House *m);
+int is_an_house(House *);
+void stamp_percentage(House *, int);
 
 
 int main(int argc, char *argv[]) {
@@ -269,6 +269,8 @@ int main(int argc, char *argv[]) {
 	if(rank == 0){
 		printf("Collected ML of each plug for a total of %d hours\n", hour_iteration);
 		calculate_median_load_finally(start_house, hour_iteration);
+		calculate_over_mean(start_house, hour_iteration);
+		stamp_percentage(start_house, hour_iteration);
 	}
 	
 	t_end = clock();
@@ -1263,7 +1265,6 @@ float calculate_median_load(int *plug_values, int num_ts){
 	return my_val;
 }
 
-//TODO BUGGY - Not calculate/assign properly the date value
 /*
  * Finds the appropriate field and fill it with the median load of a certain plug in a certain hour
  *
@@ -1276,10 +1277,9 @@ float calculate_median_load(int *plug_values, int num_ts){
 void assign_median_load(float value, int n_plug_before, int hour_number, int num_ts, House *start_house){
 	House *my_house = start_house;
 	House *temp_house = start_house;
-	Household *my_household;
 	Plug *my_plug;
 	Measurement *my_measurement;
-	int i, plug_to_remove = 0;
+	int plug_to_remove = 0;
 	int house_id = 0;
 	int plug_id = 0;
 	int date = 0;
@@ -1349,9 +1349,8 @@ void calculate_median_load_finally(House *start_house, int hour_to_calculate){
 	int current_hour, current_day;
 	int num_houses;
 	float temp;
-	
 	House *last_house = start_house;
-	Measurement *last_measurement = NULL;
+	Measurement **last_measurement = NULL;
 	Measurement *new_median_load = NULL;
 	
 	if(start_house == NULL){
@@ -1361,37 +1360,39 @@ void calculate_median_load_finally(House *start_house, int hour_to_calculate){
 	if(hour_to_calculate < 0){
 		printf("ERROR\tNot valid hour to calculate: %d\n", hour_to_calculate);
 	}
-	
 	num_houses = count_houses(start_house);
 	if(num_houses <= 0){
 		printf("ERROR\tHouses not counted properly\n");
 		return;
 	}
-
 	for(i = 0; i < num_houses; i++){
+		//Here I extract the house and do controls on extraction
 		last_house = find_house(start_house, i);
 		if(last_house->id != i){
 			printf("ERROR\tExpected House %d - Received House %d\n", i, last_house->id);
 			return;
 		}
+		last_measurement = NULL;
 		
+		//Second iteration to calculate the mean for each hour
 		for(j = 0; j < hour_to_calculate; j++){
 			current_day = j/24;
 			current_hour = j%24;
-						
+			
 			//New day - Creation structure to save median load of the house
 			if( current_hour == 0 ){
+				new_median_load = NULL;
 				new_median_load = (Measurement *) malloc(sizeof(Measurement));
 				if(new_median_load == NULL){
-					printf("ERROR\tCannot allocate enought space - Terminate execution\n");
+					printf("ERROR\tCannot allocate enough space - Terminate execution\n");
 					return;
 				}
 				if(last_measurement == NULL){
 					last_house->median_load = new_median_load;
 				} else {
-					last_measurement->next = new_median_load;
+					(*last_measurement)->next = new_median_load;
 				}
-				last_measurement = new_median_load;
+				last_measurement = &new_median_load;
 			}
 			
 			if(last_measurement == NULL){
@@ -1404,8 +1405,8 @@ void calculate_median_load_finally(House *start_house, int hour_to_calculate){
 				printf("ERROR\tML cannot be smaller than 0 - Actual value: %f\n", temp);
 				return;
 			}
-//			printf("House %d has the following ML: %f\n", last_house->id, temp);
-			last_measurement->hour[current_hour] = temp;
+			printf("House %d has the following ML: %f\n", last_house->id, temp);
+			(*last_measurement)->hour[current_hour] = temp;
 		}
 	}
 }
@@ -1422,9 +1423,8 @@ void calculate_median_load_finally(House *start_house, int hour_to_calculate){
 float median_load_house(House *my_house, int current_hour, int measurement_num){
 	float return_value;
 	float sum = 0;
-	int i, n_th;
+	int i;
 	int num_plugs;
-	//TODO ERROR
 	int *values;
 	Plug * my_plug = NULL;
 	Measurement *my_meas = NULL;
@@ -1519,7 +1519,7 @@ Plug *find_plug(House *my_house, int id) {
 Measurement *find_measurement(Plug *my_plug, int measurement_num){
 	int i;
 	if(my_plug == NULL){
-		printf("ERROR\tyou gave me a NULL plug\n");
+		printf("ERROR\tyNULL plug\n");
 		return NULL;
 	}
 	Measurement *meas = my_plug->my_measurements;
@@ -1537,46 +1537,60 @@ Measurement *find_measurement(Plug *my_plug, int measurement_num){
 	return meas;
 }
 
+/*
+ * Calculate for every house and for every hour the number of plugs over the mean
+ * start_house			->	The initial house
+ * hour_to_calculate	->	The mean is calculated for this number of hour
+ */
 void calculate_over_mean(House *start_house, int hour_to_calculate){
-	House *my_house;
+	House *my_house = start_house;
 
-	if(start_house == NULL){
-		
+	if(! is_an_house (my_house)){
+		printf("ERROR\tPassed a null house\n");
 		return;
 	}
-	if(hour_to_calculate < 0){
-
+	if(hour_to_calculate <= 0){
+		printf("ERROR\tNot consistent hour to calculate\n");
 		return;
 	}
+//	printf("CHECK\n");
 
-	my_house = start_house;
-
-	do{
+	while (is_an_house (my_house)){
+		printf("Calculating over mean House: %d TOTAL h.: %d\n", my_house->id, hour_to_calculate);
 		update_over_mean(my_house, hour_to_calculate);
+		printf("2° hour: %f\n", my_house->median_load->over_mean[1]);
 		my_house = my_house->next;
-	} while(has_next_house(my_house));
-
+	}
+//	printf("CHECK\n");
 }
 
+/*
+ * Calculate the percentage of plug over mean for this house
+ *
+ * my_house				->	It will calculate the number of plug over the mean for this house
+ * hour_to_calculate	->	It will calculate the number of plug over the mean for this number of hours.
+ */
 void update_over_mean(House *my_house, int hour_to_calculate){
 	Measurement *measurement;
+	Measurement *last_median_load;
 	Plug *my_plug;
 	int num_plug, hour, i, j;
-	float percentage, count, median_load;
+	float median_load;
+	float count = 0;
 	if(my_house == NULL){
-
+		printf("ERROR\tNULL House\n");
 		return;
 	}
 	if(my_house->median_load == NULL){
-
+		printf("ERROR\tMedian load still not calculated for House %d\n", my_house->id);
 		return;
 	}
 	if(my_house->num_plug <= 0){
-
+		printf("ERROR\tNon consistent number of plug to elaborate\n\tHouse %d - #plugs: %d\n", my_house->id, my_house->num_plug);
 		return;
 	}
 	if(hour_to_calculate < 0){
-
+		printf("ERROR\tNon consistent number of hour to elaborate\n\tHouse %d - Hour: %d\n", my_house->id, hour_to_calculate);
 		return;
 	}
 
@@ -1586,11 +1600,9 @@ void update_over_mean(House *my_house, int hour_to_calculate){
 
 	for(i = 0; i < hour_to_calculate; i++){
 		count = 0;
-		hour = i;
-
+		hour = i%24;
 		//Go to next measurement
-		if(i % 24){
-			hour = 0;
+		if(i > 0 && hour == 0){
 			measurement = measurement->next;
 		}
 
@@ -1602,17 +1614,64 @@ void update_over_mean(House *my_house, int hour_to_calculate){
 				count++;
 			}
 		}
-
-		my_house->median_load->over_mean[hour] = count/num_plug;
-
+		measurement->over_mean[hour] = count/num_plug;
+		printf("House: %d - Day: %d - Hour: %d - #Plugs over mean: %0.f - Num. plugs: %d - ML: %f\n", my_house->id, i/24, hour, count, num_plug, my_house->median_load->over_mean[hour]);
 	}
-
+//	printf("Finished update over mean\n");
 }
 
-int has_next_house(House *h){
-	return h->next == NULL ? 0 : 1;
+int is_an_house(House *h){
+	return h == NULL ? 0 : 1;
 }
 
 int has_next_measurement(Measurement *m){
 	return m->next == NULL ? 0 : 1;
+}
+
+/*
+ * Prints the percentage for each hour and each house of the plugs over the mean
+ * start_house		->	The house where it will start to print
+ * hour_iteration	->	The number of hour it will print for each house
+ */
+void stamp_percentage(House *start_house, int hour_iteration){
+	House *my_house;
+	Measurement *my_meas;
+	int i;
+	int day;
+	int hour;
+
+	//Initial checks
+	if(! is_an_house (start_house)){
+		printf("ERROR\tNULL House\n");
+		return;
+	}
+	if(start_house->median_load == NULL){
+		printf("ERROR\tMedian load still not calculated for House %d\n", start_house->id);
+		return;
+	}
+	if(hour_iteration < 0){
+		printf("ERROR\tNon consistent number of hour to elaborate\n\tHouse %d - Hour: %d\n", start_house->id, hour_iteration);
+		return;
+	}
+
+	//Assignments
+	my_house = start_house;
+
+	while(is_an_house (my_house)){
+		my_meas = my_house->median_load;
+		for(i = 0; i < hour_iteration; i++){
+			//Calculate day and hour
+			day = i/24;
+			hour = i%24;
+			//Go to the next measurement if it's a new day
+			if(day > 0 && hour == 0){
+				my_meas = my_meas->next;
+				if(my_meas == NULL){
+					printf("ERROR\tThere is no measurement for:\n\tDay %d - Hour %d - House %d\n", day, hour, my_house->id);
+				}
+			}
+			printf("House: %d - Day: %d - Hour: %d -  Over mean: %.2f%%\n", my_house->id, day+1, hour, my_meas->over_mean[hour]*100);
+		}
+		my_house = my_house->next;
+	}
 }
