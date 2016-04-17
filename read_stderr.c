@@ -270,6 +270,7 @@ int main(int argc, char *argv[]) {
 	if(rank == 0){
 		printf("Calculate median load of every house\n");
 		calculate_median_load_finally(start_house, hour_iteration);
+		printf("ATTENTION\tSecond house - second day - h:01 - ML %.3f\n", start_house->next->median_load->next->hour[1]);
 		printf("Calculate number of houses over mean load\n");
 		calculate_over_mean(start_house, hour_iteration);
 		printf("Start printing the percentage of houses over the mean\n");
@@ -599,6 +600,7 @@ void insert_house(House **start_house, House **last_appended, char *string_id) {
 	//Initialization
 	h->id = id;
 	h->h_households = NULL;
+	h->median_load = NULL;
 	h->num_plug = 0;
 	h->next = NULL;
 
@@ -1370,6 +1372,7 @@ void calculate_median_load_finally(House *start_house, int hour_to_calculate){
 	}
 }
 
+//TODO Seems that doesn't create the structure for the 2° day
 void calculate_median_load_house(House *my_house, int tot_hour){
 	Measurement *ML_house = NULL;
 	Measurement *temp;
@@ -1391,12 +1394,14 @@ void calculate_median_load_house(House *my_house, int tot_hour){
 				printf("ERROR\tCannot allocate enough space - Terminate execution\n");
 				return;
 			}
+			//TODO Maybe here the error! Not assign to the real structure but's only a local copy?
 			ML_house->next = temp;
 			ML_house = temp;
 			temp->next = NULL;
 		}
 		//Calculating and assigning the ML value
 		ML_house->hour[hour] = median_load_house(my_house, hour, day);
+		printf("Median load day: %d - h %d - value %f\n", day, hour, ML_house->hour[hour]);
 	}
 }
 
