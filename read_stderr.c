@@ -270,7 +270,6 @@ int main(int argc, char *argv[]) {
 	if(rank == 0){
 		printf("Calculate median load of every house\n");
 		calculate_median_load_finally(start_house, hour_iteration);
-		printf("ATTENTION\tSecond house - second day - h:01 - ML %.3f\n", start_house->next->median_load->next->hour[1]);
 		printf("Calculate number of houses over mean load\n");
 		calculate_over_mean(start_house, hour_iteration);
 		printf("Start printing the percentage of houses over the mean\n");
@@ -1197,6 +1196,14 @@ House *find_house(House *starting_house, int id){
 	return my_house;
 }
 
+/*
+ * Calculates the total number of plug that are in the houses with a smaller id.
+ *
+ * start_house	->	The house where I'll start to count the number of plug
+ * house_id		->	The id of my house.
+ *
+ * return		->	The number of plug that are present in the intervall between the start_house and my_house.
+ */
 int find_plug_before(House *start_house, int house_id){
 	int num = 0;
 	House *my_house = start_house;
@@ -1351,10 +1358,6 @@ void assign_median_load(float value, int n_plug_before, int hour_number, int num
  * hour_to_calculate	->	Total number of hour to calculate
  */
 void calculate_median_load_finally(House *start_house, int hour_to_calculate){
-	int j, i;
-	int current_hour, current_day;
-	int num_houses;
-	float temp;
 	House *last_house = start_house;
 
 	//Check preconditions
@@ -1372,7 +1375,12 @@ void calculate_median_load_finally(House *start_house, int hour_to_calculate){
 	}
 }
 
-//TODO Seems that doesn't create the structure for the 2° day
+/*
+ * Calculates the median load of a specific house
+ *
+ * my_house	->	The house where it will calculate the mean.
+ * tot_hour	->	The number of hour where it will calculate the mean.
+ */
 void calculate_median_load_house(House *my_house, int tot_hour){
 	Measurement *ML_house = NULL;
 	Measurement *temp;
@@ -1380,13 +1388,17 @@ void calculate_median_load_house(House *my_house, int tot_hour){
 
 	//Initially create a structure
 	ML_house = (Measurement *) malloc(sizeof(Measurement));
+	if(ML_house == NULL){
+		printf("ERROR\tNot enough memory to allocate a new measurement\n");
+		return;
+	}
 	ML_house->next = NULL;
 	my_house->median_load = ML_house;
 
 	for(i = 0; i < tot_hour; i++){
 		//Calculate day and hour
-		day = i / tot_hour;
-		hour = i % tot_hour;
+		day = i / 24;
+		hour = i % 24;
 		//If it's a new day
 		if(hour == 0 && day > 0){
 			temp = (Measurement *) malloc(sizeof(Measurement));
@@ -1394,14 +1406,14 @@ void calculate_median_load_house(House *my_house, int tot_hour){
 				printf("ERROR\tCannot allocate enough space - Terminate execution\n");
 				return;
 			}
-			//TODO Maybe here the error! Not assign to the real structure but's only a local copy?
 			ML_house->next = temp;
 			ML_house = temp;
-			temp->next = NULL;
+			ML_house->next = NULL;
 		}
 		//Calculating and assigning the ML value
 		ML_house->hour[hour] = median_load_house(my_house, hour, day);
-		printf("Median load day: %d - h %d - value %f\n", day, hour, ML_house->hour[hour]);
+//		printf("Median load day: %d - h %d\n", day, hour);
+//		printf("VALUE: %f\n", ML_house->hour[hour]);
 	}
 }
 
@@ -1550,9 +1562,9 @@ void calculate_over_mean(House *start_house, int hour_to_calculate){
 //	printf("CHECK\n");
 
 	while (is_an_house (my_house)){
-		printf("Calculating over mean House: %d TOTAL h.: %d\n", my_house->id, hour_to_calculate);
+//		printf("Calculating over mean House: %d TOTAL h.: %d\n", my_house->id, hour_to_calculate);
 		update_over_mean(my_house, hour_to_calculate);
-		printf("2° hour: %f\n", my_house->median_load->over_mean[1]);
+//		printf("2° hour: %f\n", my_house->median_load->over_mean[1]);
 		my_house = my_house->next;
 	}
 //	printf("CHECK\n");
@@ -1615,7 +1627,7 @@ void update_over_mean(House *my_house, int hour_to_calculate){
 			}
 		}
 		meas_ML->over_mean[hour] = count/num_plug;
-		printf("House: %d - Day: %d - Hour: %d - #Plugs over mean: %0.f - Num. plugs: %d - ML: %f\n", my_house->id, i/24, hour, count, num_plug, meas_ML->over_mean[hour]);
+//		printf("House: %d - Day: %d - Hour: %d - #Plugs over mean: %0.f - Num. plugs: %d - ML: %f\n", my_house->id, i/24, hour, count, num_plug, meas_ML->over_mean[hour]);
 	}
 //	printf("Finished update over mean\n");
 }
