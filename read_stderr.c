@@ -12,9 +12,11 @@
 #include <omp.h>
 #include "mpi.h"
 
-#define PATH_STDERR "/home/timmy/Scrivania/stderr-dataGenerator.txt"
-#define PATH_STDOUT "/home/timmy/Scrivania/stdout-dataGenerator.txt"
-#define LINES_STDOUT "/home/timmy/Scrivania/stdout-lines.txt"
+#define SETTINGS_PATH "settings.ini"
+#define PATH_FILES "/home/timmy/Scrivania/"
+#define PATH_STDERR "stderr-dataGenerator.txt"
+#define PATH_STDOUT "stdout-dataGenerator.txt"
+#define LINES_STDOUT "stdout-lines.txt"
 #define HOUSE "house "
 #define HOUSEHOLD "household "
 #define PLUG "plug "
@@ -120,6 +122,9 @@ void calculate_over_mean(House *, int);
 void update_over_mean(House *, int );
 int is_an_house(House *);
 void stamp_percentage(House *, int);
+char *trimwhitespace(char *str);
+int join_strings(char **destination, char *first_line, char *second_line);
+int read_file_setting(char **path_stderr, char **path_lines_stdout, char **path_stdout);
 
 
 int main(int argc, char *argv[]) {
@@ -135,6 +140,9 @@ int main(int argc, char *argv[]) {
 	int num_thread = -1;
 	int *plug_values;
 	float median_load;
+	char *path_stderr;
+	char *path_stdout;
+	char *path_lines_stdout;
 	FILE *my_stdout = NULL;
 	House *start_house = NULL;
 	House *last_house = NULL;
@@ -152,11 +160,18 @@ int main(int argc, char *argv[]) {
 
 	//What the master does
 	if(rank == 0){
+		//read setting file
+		if(! read_file_setting(&path_stderr, &path_lines_stdout, &path_stdout)){
+			printf("ATTENTION\tImpossible open setting file - Using default path\n");
+			join_strings(&path_stderr, "", PATH_STDERR);
+			join_strings(&path_lines_stdout, "", LINES_STDOUT);
+			join_strings(&path_stdout, "", PATH_STDOUT);
+		}
 		//Create the initial structure reading from stderr (PATH_STDERR)
-		create_initial_structure(PATH_STDERR, &start_house);
+		create_initial_structure(path_stderr, &start_house);
 		printf("Created structure\n");
 		//Count lines of stdout reading from LINES_STDOUT
-		lines_stdout = count_lines_stdout(LINES_STDOUT);
+		lines_stdout = count_lines_stdout(path_lines_stdout);
 		lines_left = lines_stdout;
 		total_num_houses = count_houses(start_house);
 		total_num_plugs = count_plugs(start_house);
@@ -172,7 +187,7 @@ int main(int argc, char *argv[]) {
 			}
 		}
 //		printf("MASTER\tInformation sent to other processes\n");
-		my_stdout = open_file(PATH_STDOUT);
+		my_stdout = open_file(path_stdout);
 
 		while(lines_left > 0){
 			lines_read = read_group_of_lines (&group_lines, &my_stdout, min (total_num_plugs*BLOCK, lines_left));
@@ -1686,4 +1701,67 @@ void stamp_percentage(House *start_house, int hour_iteration){
 		}
 		my_house = my_house->next;
 	}
+}
+
+char *trimwhitespace(char *str){
+  char *end;
+
+  // Trim leading space
+  while(isspace(*str)) str++;
+
+  if(*str == 0)  // All spaces?
+    return str;
+
+  // Trim trailing space
+  end = str + strlen(str) - 1;
+  while(end > str && isspace(*end)) end--;
+
+  // Write new null terminator
+  *(end+1) = 0;
+
+  return str;
+}
+
+/*
+ * Joins the first_line and second_line inside destination. Destination needs to be freed.
+ */
+int join_strings(char **destination, char *first_line, char *second_line){
+	int temp = (strlen(first_line) + strlen(second_line) + 1) * sizeof(char);
+	(*destination) = (char *) malloc(temp);
+	(*destination)[0] = '\0';
+	strcat((*destination), first_line);
+	strcat((*destination), second_line);
+	return 1;
+}
+
+/*
+ * Tries to read from settings the start path
+ */
+int read_file_setting(char **path_stderr, char **path_lines_stdout, char **path_stdout) {
+	FILE *setting_file = NULL;
+	char *read_line = NULL;
+	char **tokens;
+	char read_path[100];
+	int num_tokens = 0;
+	size_t len;
+
+	setting_file = fopen(SETTINGS_PATH, "r");
+	if(setting_file == NULL){
+		return 0;
+	}
+	while (getline(&read_line, &len, setting_file) != -1) {
+		num_tokens = split(read_line, '=', &tokens);
+		if(! strcmp(trimwhitespace(tokens[0]), "path")){
+			//OK
+			strncpy(read_path, trimwhitespace(tokens[1]), 99);
+		}
+		free_tokens(&tokens, num_tokens);
+		free(read_line);
+		read_line = NULL;
+	}
+
+	join_strings(path_stderr, read_path, PATH_STDERR);
+	join_strings(path_lines_stdout, read_path, LINES_STDOUT);
+	join_strings(path_stdout, read_path, PATH_STDOUT);
+	return 1;
 }
