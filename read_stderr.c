@@ -158,7 +158,7 @@ int main(int argc, char *argv[]) {
 	plug_values = (int *) malloc (sizeof (int) * BLOCK);
 	t_start = clock();
 
-	//What the master does
+	//Creating initial structure and sharing initial infomation
 	if(rank == 0){
 		//read setting file
 		if(! read_file_setting(&path_stderr, &path_lines_stdout, &path_stdout)){
@@ -186,12 +186,23 @@ int main(int argc, char *argv[]) {
 				}
 			}
 		}
-//		printf("MASTER\tInformation sent to other processes\n");
-		my_stdout = open_file(path_stdout);
+		printf("MASTER\tInformation sent to other processes\n");
 
+	} else {
+		//That's what the SLAVE does
+		//Receive initial information
+//		printf("Slave %d\tWaiting initial message\n", rank);
+		receive_initial_message(&total_num_houses, &total_num_plugs, &lines_left, 0, rank);
+//		printf("Slave %d\t#House: %d - #Plug: %d - #Lines: %ld\n", rank, total_num_houses, total_num_plugs, lines_left);
+	}
+	//All processes now should start from here
+	MPI_Barrier(MPI_COMM_WORLD);
+
+	if(rank == 0){
+		printf("Let's rock!\n");
+		my_stdout = open_file(path_stdout);
 		while(lines_left > 0){
 			lines_read = read_group_of_lines (&group_lines, &my_stdout, min (total_num_plugs*BLOCK, lines_left));
-			
 			lines_left -= lines_read;
 			num_ts = lines_read/total_num_plugs;
 
@@ -255,12 +266,6 @@ int main(int argc, char *argv[]) {
 			free_tokens(&group_lines, lines_read);
 		}
 	} else {
-		//That's what the SLAVE does
-		//Receive initial information
-//		printf("Slave %d\tWaiting initial message\n", rank);
-		receive_initial_message(&total_num_houses, &total_num_plugs, &lines_left, 0, rank);
-//		printf("Slave %d\t#House: %d - #Plug: %d - #Lines: %ld\n", rank, total_num_houses, total_num_plugs, lines_left);
-
 		while(lines_left > 0){
 			//In this case I receive a plug per time
 			for (i = rank; i < total_num_plugs; i += num_processes){
