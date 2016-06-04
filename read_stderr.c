@@ -129,7 +129,7 @@ int read_file_setting(char **path_stderr, char **path_lines_stdout, char **path_
 
 int main(int argc, char *argv[]) {
 	int rank, num_processes;
-	int i, j, hour_iteration = 0;
+	int i, j, k, hour_iteration = 0;
 	double percentage = 0;
 	long lines_stdout = 0;
 	long lines_left = 0;
@@ -158,7 +158,7 @@ int main(int argc, char *argv[]) {
 	plug_values = (int *) malloc (sizeof (int) * BLOCK);
 	t_start = clock();
 
-	//Creating initial structure and sharing initial infomation
+	//Creating initial structure and sharing initial information
 	if(rank == 0){
 		//read setting file
 		if(! read_file_setting(&path_stderr, &path_lines_stdout, &path_stdout)){
@@ -198,16 +198,17 @@ int main(int argc, char *argv[]) {
 	//All processes now should start from here
 	MPI_Barrier(MPI_COMM_WORLD);
 
-	if(rank == 0){
-		printf("Let's rock!\n");
-		my_stdout = open_file(path_stdout);
-		while(lines_left > 0){
+	while(lines_left > 0){
+		//Master
+		if(rank == 0){
+			my_stdout = open_file(path_stdout);
 			lines_read = read_group_of_lines (&group_lines, &my_stdout, min (total_num_plugs*BLOCK, lines_left));
 			lines_left -= lines_read;
 			num_ts = lines_read/total_num_plugs;
 
-			//Complete computation if I'm alone
+			//ONLY MASTER - NO SLAVES
 			if(num_processes == 1){
+				//TODO NOT WORKING - Doesn't calculate final statistics
 				//If master is the only one running, I execute everything alone
 				last_house = start_house;
 				last_household = start_house->h_households;
@@ -222,13 +223,14 @@ int main(int argc, char *argv[]) {
 					}
 				}
 			} else {
-				//Here is what MASTER does if there are slaves
+			//MASTER + SLAVES
 				for (i = 0; i < total_num_plugs; i += num_processes){
-					#pragma omp parallel num_threads(num_processes) private(num_thread, median_load)
-					{
-						num_thread = omp_get_thread_num();
+//					#pragma omp parallel num_threads(num_processes) private(num_thread, median_load)
+					for(k = 0; k < num_processes; k++){
+						num_thread = k;
 						//Checking if there's something to calculate
 						if(i+num_thread < total_num_plugs){
+							//TODO Make all calculus at the end
 							if (num_thread == 0){
 								//I organize the matrix plug_values
 								for(j = 0; j < num_ts; j++){
@@ -237,13 +239,13 @@ int main(int argc, char *argv[]) {
 								median_load = calculate_median_load(plug_values, num_ts);
 							} else {
 								if(i + num_thread < total_num_plugs){
-									//Send data to elaborate
-//									printf("Master\tThread %d\nSend plug %d to %d\n", num_thread, i+num_thread, num_thread);
+								//SEND PLUGS
+									printf("Master - Thread %d - Send plug %d to %d\n", num_thread, i+num_thread, num_thread);
 									send_plug(i+num_thread, total_num_plugs, start_house, group_lines, num_thread, num_ts);
-//									printf("Master\tThread %d\nPlug %d sent to %d\n", num_thread, i+num_thread, num_thread);
+									printf("Master - Thread %d - Plug %d sent to %d\n", num_thread, i+num_thread, num_thread);
 									//Receive answer
 									receive_float_message(&median_load, num_thread, num_thread);
-//									printf("Median value received %f\n", median_load);
+									printf("Median value received %f\n", median_load);
 								}
 							}
 							//Saving elaborated data
@@ -260,33 +262,33 @@ int main(int argc, char *argv[]) {
 					num_thread = omp_get_thread_num();
 					send_long_message(lines_left, num_thread, num_thread);
 				}
+
+				hour_iteration ++;
+				printf("Elaboration at: %.2f%%\n", (float)(lines_stdout-lines_left)*100/lines_stdout);
+				free_tokens(&group_lines, lines_read);
 			}
-			hour_iteration ++;
-			printf("Elaboration at: %.2f%%\n", (float)(lines_stdout-lines_left)*100/lines_stdout);
-			free_tokens(&group_lines, lines_read);
-		}
-	} else {
-		while(lines_left > 0){
-			//In this case I receive a plug per time
+		} else {
+			//SLAVE receives a plug per time
+
 			for (i = rank; i < total_num_plugs; i += num_processes){
-				//printf("Slave %d\tWaiting for plug %d\n", rank, i);
+				printf("Slave %d - Waiting for plug %d\n", rank, i);
 				receive_plug (&plug_values, &num_ts, rank);
-				//printf("Slave %d\treceived plug %d\n", rank, i);
+				printf("Slave %d - Received plug %d\n", rank, i);
 				median_load = calculate_median_load(plug_values, num_ts);
-//				printf("Slave %d\tCalculated the following ML: %f\n", rank, median_load[rank]);
+				printf("Slave %d - Calculated the following ML: %f\n", rank, median_load);
 				send_float_message(median_load, 0, rank);
 			}
-		
+
 //			printf("Slave %d\tWait for line update\n", rank);
 			receive_long_message(&lines_left, 0, rank);
 //			printf("Slave %d\t#lines left: %ld\n", rank, lines_left);
+
+			printf("Slave %d\tFinished my job, finally free!\n", rank);
 		}
-		
-		printf("Slave %d\tFinished my job, finally free!\n", rank);
+		MPI_Barrier(MPI_COMM_WORLD);
 	}
 
-	MPI_Barrier(MPI_COMM_WORLD);
-		
+	//Now there are no lines left.
 	if(rank == 0){
 		printf("Calculate median load of every house\n");
 		calculate_median_load_finally(start_house, hour_iteration);
