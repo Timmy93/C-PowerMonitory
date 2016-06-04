@@ -129,7 +129,7 @@ int read_file_setting(char **path_stderr, char **path_lines_stdout, char **path_
 
 int main(int argc, char *argv[]) {
 	int rank, num_processes;
-	int i, j, k, hour_iteration = 0;
+	int i, j, process_num, l, hour_iteration = 0;
 	double percentage = 0;
 	long lines_stdout = 0;
 	long lines_left = 0;
@@ -206,84 +206,70 @@ int main(int argc, char *argv[]) {
 			lines_left -= lines_read;
 			num_ts = lines_read/total_num_plugs;
 
-			//ONLY MASTER - NO SLAVES
-			if(num_processes == 1){
-				//TODO NOT WORKING - Doesn't calculate final statistics
-				//If master is the only one running, I execute everything alone
-				last_house = start_house;
-				last_household = start_house->h_households;
-				last_plug = start_house->h_households->hh_plugs;
-				for (i = 0; i < lines_read; i++) {
-					percentage += 1;
-					elaborate_stdout(start_house, &last_house, &last_household, &last_plug,
-						group_lines[i]);
-					if (((int) percentage) % 100000 == 0) {
-						printf("Execution at:\t%.2f%%\n",
-							(percentage / lines_stdout) * 100);
-					}
-				}
-			} else {
-			//MASTER + SLAVES
-				for (i = 0; i < total_num_plugs; i += num_processes){
-//					#pragma omp parallel num_threads(num_processes) private(num_thread, median_load)
-					for(k = 0; k < num_processes; k++){
-						num_thread = k;
-						//Checking if there's something to calculate
+			for (i = 0; i < total_num_plugs; i += num_processes){
+				//I create 2 threads: the first works like a slave, the second sends the informations
+				#pragma omp parallel num_threads(2) private(num_thread, median_load)
+				{
+					num_thread = omp_get_thread_num();
+					if(num_thread == 0){
 						if(i+num_thread < total_num_plugs){
-							//TODO Make all calculus at the end
-							if (num_thread == 0){
-								//I organize the matrix plug_values
-								for(j = 0; j < num_ts; j++){
-									plug_values[j] = get_plug_value( group_lines[i + (j * total_num_plugs)] );
-								}
-								median_load = calculate_median_load(plug_values, num_ts);
-							} else {
-								if(i + num_thread < total_num_plugs){
-								//SEND PLUGS
-									printf("Master - Thread %d - Send plug %d to %d\n", num_thread, i+num_thread, num_thread);
-									send_plug(i+num_thread, total_num_plugs, start_house, group_lines, num_thread, num_ts);
-									printf("Master - Thread %d - Plug %d sent to %d\n", num_thread, i+num_thread, num_thread);
-									//Receive answer
-									receive_float_message(&median_load, num_thread, num_thread);
-									printf("Median value received %f\n", median_load);
-								}
+							for(j = 0; j < num_ts; j++){
+								plug_values[j] = get_plug_value( group_lines[i + (j * total_num_plugs)] );
 							}
-							//Saving elaborated data
+							median_load = calculate_median_load(plug_values, num_ts);
 							assign_median_load(median_load, i+num_thread, hour_iteration, num_ts, start_house);
-//							printf("Master\tPlug %d - %f\n", i+num_thread, median_load);
+						}
+					} else {
+						//Here I send the messages to every process then I wait for their answer
+						for(process_num = 1; process_num < num_processes; process_num++){
+							if(i + process_num < total_num_plugs){
+								//SEND PLUGS
+//								printf("Master - Thread %d - Send plug %d to %d\n", process_num, i+process_num, process_num);
+								send_plug(i+process_num, total_num_plugs, start_house, group_lines, process_num, num_ts);
+//								printf("Master - Thread %d - Plug %d sent to %d\n", process_num, i+process_num, process_num);
+							}
+						}
+						//Here I've send all the informations, now I look for answers
+						for(process_num = 1; process_num < num_processes; process_num++){
+							if(i + process_num < total_num_plugs){
+								//Receive answer
+								receive_float_message(&median_load, process_num, process_num);
+//								printf("Median value received %f\n", median_load);
+								assign_median_load(median_load, i+process_num, hour_iteration, num_ts, start_house);
+							}
 						}
 					}
 				}
-
-//				printf("Send lines update\n");
-				//Send the update about remaining lines to read
-				#pragma omp parallel num_threads(num_processes) private(num_thread)
-				{
-					num_thread = omp_get_thread_num();
-					send_long_message(lines_left, num_thread, num_thread);
-				}
-
-				hour_iteration ++;
-				printf("Elaboration at: %.2f%%\n", (float)(lines_stdout-lines_left)*100/lines_stdout);
-				free_tokens(&group_lines, lines_read);
 			}
-		} else {
-			//SLAVE receives a plug per time
+//			printf("Send lines update\n");
+			//Send the update about remaining lines to read
+			#pragma omp parallel num_threads(num_processes) private(num_thread)
+			{
+				num_thread = omp_get_thread_num();
+				send_long_message(lines_left, num_thread, num_thread);
+			}
 
+			hour_iteration ++;
+			printf("Elaboration at: %.2f%%\n", (float)(lines_stdout-lines_left)*100/lines_stdout);
+			free_tokens(&group_lines, lines_read);
+		} else {
+
+			//SLAVE receives a plug per time
 			for (i = rank; i < total_num_plugs; i += num_processes){
-				printf("Slave %d - Waiting for plug %d\n", rank, i);
+//				printf("Slave %d - Waiting for plug %d\n", rank, i);
 				receive_plug (&plug_values, &num_ts, rank);
-				printf("Slave %d - Received plug %d\n", rank, i);
+//				printf("Slave %d - Received plug %d\n", rank, i);
 				median_load = calculate_median_load(plug_values, num_ts);
-				printf("Slave %d - Calculated the following ML: %f\n", rank, median_load);
+//				printf("Slave %d - Calculated the following ML: %f\n", rank, median_load);
 				send_float_message(median_load, 0, rank);
 			}
 
+		}
+		
+		if(rank != 0){
 //			printf("Slave %d\tWait for line update\n", rank);
 			receive_long_message(&lines_left, 0, rank);
 //			printf("Slave %d\t#lines left: %ld\n", rank, lines_left);
-
-			printf("Slave %d\tFinished my job, finally free!\n", rank);
 		}
 		MPI_Barrier(MPI_COMM_WORLD);
 	}
@@ -297,6 +283,8 @@ int main(int argc, char *argv[]) {
 		printf("Start printing the percentage of houses over the mean\n");
 		stamp_percentage(start_house, hour_iteration);
 		printf("Finished printing\n");
+	} else {
+		printf("Slave %d\tFinished my job, finally free! Goodbye\n", rank);
 	}
 	
 	t_end = clock();
@@ -1772,3 +1760,24 @@ int read_file_setting(char **path_stderr, char **path_lines_stdout, char **path_
 	join_strings(path_stdout, read_path, PATH_STDOUT);
 	return 1;
 }
+
+/*		REMOVED CODE
+ *
+			//ONLY MASTER - NO SLAVES
+			if(num_processes == 1){
+				//TODO NOT WORKING - Doesn't calculate final statistics
+				//If master is the only one running, I execute everything alone
+				last_house = start_house;
+				last_household = start_house->h_households;
+				last_plug = start_house->h_households->hh_plugs;
+				for (i = 0; i < lines_read; i++) {
+					percentage += 1;
+					elaborate_stdout(start_house, &last_house, &last_household, &last_plug,
+						group_lines[i]);
+					if (((int) percentage) % 100000 == 0) {
+						printf("Execution at:\t%.2f%%\n",
+							(percentage / lines_stdout) * 100);
+					}
+				}
+			} else {
+ */
