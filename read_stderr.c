@@ -23,7 +23,6 @@
 #define BLOCK 3600
 #define SEND_ALL_HOUSE 0
 
-//TODO Doesn't work with more than 2 processes
 struct measurement {
 	int date;
 	float hour[24];
@@ -177,19 +176,20 @@ int main(int argc, char *argv[]) {
 		total_num_plugs = count_plugs(start_house);
 		printf("MASTER\tLines: %ld\tHouses: %d\tPlugs: %d\n", lines_left, total_num_houses, total_num_plugs);
 		//Here send the initial informations
-		#pragma omp parallel num_threads(num_processes) private(num_thread)
+		for(i = 0; i < num_processes; i++)
 		{
-			num_thread = omp_get_thread_num();
+			num_thread = i;
 			if(num_thread != 0){
 				if(send_initial_message(total_num_houses, total_num_plugs, lines_left, num_thread, num_thread) < 1){
-					printf("ERROR\tImpossible send initial message\n");
+					printf("ERROR\tCannot send initial message\n");
 				}
 			}
 		}
 		printf("MASTER\tInformation sent to other processes\n");
+		my_stdout = open_file(path_stdout);
 
 	} else {
-		//That's what the SLAVE does
+		//SLAVE
 		//Receive initial information
 //		printf("Slave %d\tWaiting initial message\n", rank);
 		receive_initial_message(&total_num_houses, &total_num_plugs, &lines_left, 0, rank);
@@ -201,7 +201,6 @@ int main(int argc, char *argv[]) {
 	while(lines_left > 0){
 		//Master
 		if(rank == 0){
-			my_stdout = open_file(path_stdout);
 			lines_read = read_group_of_lines (&group_lines, &my_stdout, min (total_num_plugs*BLOCK, lines_left));
 			lines_left -= lines_read;
 			num_ts = lines_read/total_num_plugs;
@@ -253,7 +252,6 @@ int main(int argc, char *argv[]) {
 			printf("Elaboration at: %.2f%%\n", (float)(lines_stdout-lines_left)*100/lines_stdout);
 			free_tokens(&group_lines, lines_read);
 		} else {
-
 			//SLAVE receives a plug per time
 			for (i = rank; i < total_num_plugs; i += num_processes){
 //				printf("Slave %d - Waiting for plug %d\n", rank, i);
@@ -263,7 +261,6 @@ int main(int argc, char *argv[]) {
 //				printf("Slave %d - Calculated the following ML: %f\n", rank, median_load);
 				send_float_message(median_load, 0, rank);
 			}
-
 		}
 		
 		if(rank != 0){
@@ -1422,8 +1419,7 @@ void calculate_median_load_house(House *my_house, int tot_hour){
 		}
 		//Calculating and assigning the ML value
 		ML_house->hour[hour] = median_load_house(my_house, hour, day);
-//		printf("Median load day: %d - h %d\n", day, hour);
-//		printf("VALUE: %f\n", ML_house->hour[hour]);
+//		printf("ML - House: %d date(%d/%d) -> %f\n", my_house->id, day, hour, ML_house->hour[hour]);
 	}
 }
 
@@ -1468,6 +1464,8 @@ float median_load_house(House *my_house, int current_hour, int measurement_num){
 	
 	values = (int *) malloc(sizeof(int)*num_plugs);
 	
+//	printf("H%d ", current_hour);
+
 	for(i = 0; i < num_plugs; i++){
 		my_plug = find_plug (my_house, i);
 		if(my_plug == NULL){
@@ -1478,7 +1476,9 @@ float median_load_house(House *my_house, int current_hour, int measurement_num){
 			printf("ERROR\tCannot find appropriate measurement\n");
 		}
 		values[i] = my_meas->hour[current_hour];
+//		printf("%.0f|", my_meas->hour[current_hour]);
 	}
+//	printf("\n");
 
 	#pragma omp parallel for private(i) reduction(+: sum)
 	for(i = 0; i < num_plugs; i++)
@@ -1486,6 +1486,7 @@ float median_load_house(House *my_house, int current_hour, int measurement_num){
 		sum += values[i];
 	}
 	return_value = (sum/num_plugs);
+//	printf("%f/%d = %f\t", sum, num_plugs, return_value);
 	free(values);
 	return return_value;
 }
@@ -1760,24 +1761,3 @@ int read_file_setting(char **path_stderr, char **path_lines_stdout, char **path_
 	join_strings(path_stdout, read_path, PATH_STDOUT);
 	return 1;
 }
-
-/*		REMOVED CODE
- *
-			//ONLY MASTER - NO SLAVES
-			if(num_processes == 1){
-				//TODO NOT WORKING - Doesn't calculate final statistics
-				//If master is the only one running, I execute everything alone
-				last_house = start_house;
-				last_household = start_house->h_households;
-				last_plug = start_house->h_households->hh_plugs;
-				for (i = 0; i < lines_read; i++) {
-					percentage += 1;
-					elaborate_stdout(start_house, &last_house, &last_household, &last_plug,
-						group_lines[i]);
-					if (((int) percentage) % 100000 == 0) {
-						printf("Execution at:\t%.2f%%\n",
-							(percentage / lines_stdout) * 100);
-					}
-				}
-			} else {
- */
